@@ -1,75 +1,94 @@
 import cv2
 import mediapipe as mp
+import time
+import numpy as np
+import pyautogui
+
+pyautogui.FAILSAFE = True
+pyautogui.PAUSE = 0
 
 def main():
-
-    # mp_hands provides the model; mp_draw provides the utility to draw the lines
     mp_hands = mp.solutions.hands
     mp_draw = mp.solutions.drawing_utils
 
-    # Configure the Hands object:
-    # static_image_mode=False: Optimizes for video tracking (faster)
-    # max_num_hands=1: Tracks only one hand to save CPU
-    # min_detection_confidence: AI must be 70% sure it's a hand to start tracking
-    # min_tracking_confidence: AI must be 50% sure it's the SAME hand to keep tracking
     hands = mp_hands.Hands(
-        static_image_mode=False,
-        max_num_hands=1,
-        min_detection_confidence=0.8,
-        min_tracking_confidence=0.5
+        static_image_mode = False,
+        max_num_hands = 1,
+        min_detection_confidence = 0.8,
+        min_tracking_confidence = 0.5,
+        model_complexity = 0
     )
-    
-    # 0: std wecame. Can pass a video file path for pre-recorded footage
+
     cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: Could not open webcam")
-        return
+    start_time = time.time()
+    while not cap.isOpened():
+        cap.open(0)
+        if time.time() - start_time > 10:
+            return
+        time.sleep(0.5)
     
-    print("Webcam starts. Press 'q' to quit")
+    w_cam, h_cam = 640, 480
+    cap.set(3, w_cam)
+    cap.set(4, h_cam)
 
-    while True:
-        # Capture frame by frame
-        # 'ret' is a boolean (True if frame captured), 'frame' is the image array
-        ret, frame = cap.read()
+    # Screen dimensions
+    screen_w, screen_h = pyautogui.size()
 
-        if not ret:
-            print("Error to grab frame")
-            break
+    frame_r = 100
+    p_time = 0
 
-        # Mirror the frame
-        # 1: Horizontal; 0: Vertical; -1: Both
+    # Smoothing factors
+    smooth_factor = 5
+    ploc_x, ploc_y = 0, 0
+    cloc_x, cloc_y = 0, 0
+
+
+    while cap.isOpened():
+        success, frame = cap.read()
+        if not success: break
+
         frame = cv2.flip(frame, 1)
-
-        # OpenCV uses BGR (Blue-Green-Red), but MediaPipe needs RGB
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-        # perform detection
         results = hands.process(img_rgb)
 
-        # Extract and Draw Landmarks
-        # results.multi_hand_landmarks will contain the 21 points if a hand is found
+        # Draw active zone
+        cv2.rectangle(frame, (frame_r, frame_r), (w_cam - frame_r, h_cam - frame_r), (255, 0, 0), 2)
+
         if results.multi_hand_landmarks:
-            for hand_landmark in results.multi_hand_landmarks:
-                # This helper function draws the dots and lines automatically
+            for hand_lm in results.multi_hand_landmarks:
                 mp_draw.draw_landmarks(
                     frame, 
-                    hand_landmark, 
+                    hand_lm, 
                     mp_hands.HAND_CONNECTIONS
                 )
 
-                # To see the specific (x, y) of your Index Finger Tip (Point 8):
-                index_tip = hand_landmark.landmark[8]
-                # print(f"Index Tip: x={index_tip.x:.2f}, y={index_tip.y:.2f}")
+                # Index finger
+                index = hand_lm.landmark[8]
+                cx, cy = int(index.x * w_cam), int(index.y * h_cam)
 
-        # cv2.imshow(window_name, image)
-        cv2.imshow('GMC Phase 1.1', frame)
+                # Coordinate mapping
+                x_mouse = np.interp(cx, (frame_r, w_cam - frame_r), (0, screen_w))
+                y_mouse = np.interp(cy, (frame_r, h_cam - frame_r), (0, screen_h))
 
-        # cv2.waitKey(1) waits 1ms for a key event. 0xFF mask captures the key.
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+                # Smoothing
+                cloc_x = ploc_x + (x_mouse - ploc_x) / smooth_factor
+                cloc_y = ploc_y + (y_mouse - ploc_y) / smooth_factor
 
-    # Clean up
-    cap.release() # close webcam hardware
+                # Move the actual cursor
+                pyautogui.moveTo(cloc_x, cloc_y, _pause=False)
+
+                ploc_x, ploc_y = cloc_x, cloc_y
+
+        c_time = time.time()
+        fps = 1 / (c_time - p_time)
+        p_time = c_time
+        cv2.putText(frame, f'FPS: {int(fps)}', (20, 50), cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 3)
+
+        cv2.imshow('Milestone 2.1', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'): break
+
+    
+    cap.release()
     cv2.destroyAllWindows()
 
 
