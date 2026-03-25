@@ -8,7 +8,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
 def train_model():
-    csv_path = 'gesture_data.csv'
+    csv_path = '../data/gesture_data.csv'
     if not os.path.exists(csv_path):
         print("Error csv file")
         return

@@ -6,8 +6,8 @@ import numpy as np
 import warnings
 import os
 from collections import deque, Counter
-from utils import normalize_landmarks
-from controller import SystemController
+from src.utils import normalize_landmarks
+from src.controller import SystemController
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -25,7 +25,7 @@ CMD_COOLDOWN = 1.3
 
 def main():
     try:
-        with open('gesture_classifier.pkl', 'rb') as f:
+        with open('models/gesture_classifier.pkl', 'rb') as f:
             model = pickle.load(f)
     except FileNotFoundError:
         print("Error: Have not trained the model")

@@ -3,7 +3,7 @@ import cv2
 import time
 import csv
 import os
-from utils import normalize_landmarks
+from src.utils import normalize_landmarks
 
 def main():
     mp_hands= mp.solutions.hands
@@ -22,7 +22,7 @@ def main():
 
     counts = {'0': 0, '1': 0, '2': 0, '3': 0}
 
-    csv_path = 'gesture_data.csv'
+    csv_path = '../data/gesture_data.csv'
     if os.path.isfile(csv_path):
         with open(csv_path, 'r') as f:
             reader = csv.reader(f)

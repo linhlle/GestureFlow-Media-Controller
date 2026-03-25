@@ -1,6 +1,6 @@
 import pandas as pd
 
-df = pd.read_csv('gesture_data.csv')
+df = pd.read_csv('../data/gesture_data.csv')
 print("--- DATASET SUMMARY ---")
 print(f"Total frame captured: {len(df)}")
 print("\nSamples per Gesture: ")
