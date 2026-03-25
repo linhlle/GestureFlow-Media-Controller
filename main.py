@@ -4,17 +4,19 @@ import time
 import pyautogui
 import pickle
 import numpy as np
+import os
+import subprocess
 from collections import deque, Counter
-
+from utils import normalize_landmarks, get_current_volume
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 
-SMOOTH_FACTOR = 7
+SMOOTH_FACTOR = 5
 
 VOTE_WINDOW_SIZE = 10
 VOTE_THRESHOLD = 7
-CONFIDENCE_THRESHOLD = 0.7
+CONFIDENCE_THRESHOLD = 0.8
 
 GESTURE_MAP = {
     1: "Spotlight",     # L-Shape
@@ -31,6 +33,8 @@ def main():
         print("Error: Have not trained the model")
         return
     
+    current_vol = get_current_volume()
+    last_vol_update_time = 0
 
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
@@ -69,11 +73,10 @@ def main():
 
         if results.multi_hand_landmarks:
             for hand_lm in results.multi_hand_landmarks:
-                data = []
-                for lm in hand_lm.landmark:
-                    data.extend([lm.x, lm.y, lm.z])
+                landmarks = hand_lm.landmark
+                processed_data = normalize_landmarks(landmarks)
 
-                probs = model.predict_proba([data])[0]
+                probs = model.predict_proba([processed_data])[0]
                 pred = np.argmax(probs)
                 confidence = probs[pred]
                 
@@ -92,14 +95,14 @@ def main():
                 ix, iy = int(index_tip.x * w_cam), int(index_tip.y * h_cam)
 
                 current_action = "Hovering"
-                if vote_score > VOTE_THRESHOLD and stable_pred != 0:
+                if vote_score >= VOTE_THRESHOLD and stable_pred != 0:
                     curr_time = time.time()
                     if curr_time - last_cmd_time > 1.3:
-                        if label == 1: #Spotloght
+                        if stable_pred == 1: #Spotloght
                             pyautogui.hotkey('command', 'space')
-                        elif label == 2: # Mission control
+                        elif stable_pred == 2: # Mission control
                             pyautogui.hotkey('ctrl', 'up')
-                        elif label == 3: # App switcher
+                        elif stable_pred == 3: # App switcher
                             pyautogui.hotkey('command', 'tab')
                         
                         last_cmd_time = curr_time
@@ -118,14 +121,20 @@ def main():
 
                 # Thumb: slider logic
                 thumb_tip = hand_lm.landmark[4]
-                if thumb_tip.y < index_tip.y and label == 0:
+                if thumb_tip.y < index_tip.y and stable_pred == 0:
                     curr_y = hand_lm.landmark[0].y
                     if prev_y != 0:
-                        if prev_y - curr_y > 0.05:
-                            pyautogui.press('volumnup')
-                        elif curr_y - prev_y > 0.05:
-                            pyautogui.press('volumedown')
+                        diff = prev_y - curr_y
+                        if abs(diff) > 0.02:
+                            change = 5 if diff > 0 else -5
+                            subprocess.run(["osascript", "-e", f"set volume output volume (output volume of (get volume settings) + {change})"])
+                            current_vol = get_current_volume()
+
                     prev_y = curr_y
+                    bar_y = int(np.interp(current_vol, [0, 100], [400, 150]))
+                    cv2.rectangle(frame, (590, 150), (610, 400), (50, 50, 50), -1) # Background
+                    cv2.rectangle(frame, (590, bar_y), (610, 400), (0, 255, 255), -1) # Progress
+                    cv2.putText(frame, f"{current_vol}%", (580, 430), cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 255), 2)
                 else:
                     prev_y = 0
 
