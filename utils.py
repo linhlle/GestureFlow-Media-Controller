@@ -17,12 +17,3 @@ def normalize_landmarks(landmark_list):
 
     return normalized
 
-
-def get_current_volume():
-    try: 
-        cmd = ["osascript", "-e", "output volume of (get volume settings)"]
-        result = subprocess.check_output(cmd).decode('utf-8').strip()
-        return int(result)
-
-    except:
-        return 0
