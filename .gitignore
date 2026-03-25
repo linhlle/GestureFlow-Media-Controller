@@ -207,3 +207,4 @@ marimo/_lsp/
 __marimo__/
 main_old.py
 ref.py
+.DS_Store
