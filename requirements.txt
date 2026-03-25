@@ -9,6 +9,7 @@ importlib_metadata==8.7.1
 importlib_resources==6.5.2
 jax==0.4.30
 jaxlib==0.4.30
+joblib==1.5.3
 kiwisolver==1.4.7
 matplotlib==3.9.4
 mediapipe==0.10.14
@@ -19,6 +20,7 @@ opencv-contrib-python==4.13.0.92
 opencv-python==4.13.0.92
 opt_einsum==3.4.0
 packaging==26.0
+pandas==2.3.3
 pillow==11.3.0
 protobuf==4.25.8
 PyAutoGUI==0.9.54
@@ -186,8 +188,14 @@ PyRect==0.2.0
 PyScreeze==1.0.1
 python-dateutil==2.9.0.post0
 pytweening==1.2.0
+pytz==2026.1.post1
 rubicon-objc==0.5.2
+scikit-learn==1.6.1
 scipy==1.13.1
+seaborn==0.13.2
 six==1.17.0
 sounddevice==0.5.5
+threadpoolctl==3.6.0
+tzdata==2025.3
+xgboost==2.1.4
 zipp==3.23.0
