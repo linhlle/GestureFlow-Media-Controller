@@ -1,11 +1,19 @@
 import pandas as pd
 import pickle
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
 def train_model():
-    df = pd.read_csv('gesture_data.csv')
+    csv_path = 'gesture_data.csv'
+    if not os.path.exists(csv_path):
+        print("Error csv file")
+        return
+    df = pd.read_csv(csv_path)
+
 
     X = df.iloc[:, :-1]
     y = df.iloc[:, -1]
@@ -34,7 +42,17 @@ def train_model():
     with open('gesture_classifier.pkl', 'wb') as f:
         pickle.dump(model, f)
 
-    print("\nSuccess: 'gesture_classifier.pkl' is ready for action!")
+    print("\nSuccess")
+
+    target_names = ["Neutral", "L-Shape", "High-Five", "2-Finger"]
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(8,6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=target_names, yticklabels=target_names)
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.title('Gesture Recognition Confusion Matrix')
+    plt.show()
 
 if __name__ == "__main__":
     train_model()

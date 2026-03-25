@@ -3,6 +3,7 @@ import cv2
 import time
 import csv
 import os
+from utils import normalize_landmarks
 
 def main():
     mp_hands= mp.solutions.hands
@@ -63,10 +64,7 @@ def main():
 
                 if ord('0') <= key <= ord('3'):
                     label = chr(key)
-                    data_row = []
-                    for lm in hand_lms.landmark:
-                        data_row.extend([lm.x, lm.y, lm.z])
-
+                    data_row = normalize_landmarks(hand_lms.landmark)
                     data_row.append(label)
 
                     file_exists = os.path.isfile(csv_path)
