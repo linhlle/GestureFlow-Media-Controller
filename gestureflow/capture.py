@@ -53,7 +53,7 @@ class CaptureThread(threading.Thread):
         hands = mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=mp_cfg.max_num_hands,
-            min_detection_confidence=mp_cfg.min_detection_tracking,
+            min_detection_confidence=mp_cfg.min_detection_confidence,
             min_tracking_confidence=mp_cfg.min_tracking_confidence
         )
 

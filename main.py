@@ -40,112 +40,168 @@ from gestureflow.config import DEFAULT_CONFIG, GESTURE_MAP
 from gestureflow.controller import SystemController
 from gestureflow.inference import InferenceResult, InferenceThread
 from gestureflow.utils import models_path
+from gestureflow.click_fsm import ClickState
 
 
-# ---------------------------------------------------------------------------
-# Overlay rendering helpers
-# ---------------------------------------------------------------------------
 
-def _draw_overlay(
-    frame: np.ndarray,
-    result: InferenceResult,
-    ctrl: SystemController,
-    cfg=DEFAULT_CONFIG,
-) -> None:
-    """Draw all HUD elements onto ``frame`` in-place."""
+# ============================================================================
+# HUD rendering
+# ============================================================================
+ 
+def _draw_active_zone(frame: np.ndarray, margin: int) -> None:
     h, w = frame.shape[:2]
-    margin = cfg.mouse.frame_margin
-
-    cv2.rectangle(
-        frame,
-        (margin, margin),
-        (w - margin, h - margin),
-        (255, 0, 0), 2,
-    )
-
+    cv2.rectangle(frame, (margin, margin), (w - margin, h - margin),
+                  (255, 0, 0), 2)
+ 
+ 
+def _draw_status(frame: np.ndarray, result: InferenceResult,
+                 window_size: int) -> None:
     stable = result.stable_gesture
-    score = result.vote_score
-    window = cfg.debounce.vote_window_size
-
-    if stable != 0 and stable in GESTURE_MAP:
-        status = f"ACTION: {GESTURE_MAP[stable]['name']}"
-        color = (0, 255, 0)
+    score  = result.vote_score
+ 
+    if result.click_fired:
+        text, color = "LEFT CLICK", (0, 255, 255)
+    elif result.right_click_fired:
+        text, color = "RIGHT CLICK", (0, 200, 180)
+    # elif result.scroll_active:
+    #     direction = "UP" if result.scroll_delta > 0 else ("DOWN" if result.scroll_delta < 0 else "...")
+    #     text, color = f"SCROLL {direction}", (100, 255, 150)
+    elif result.fsm_active:
+        pct = int(result.hold_progress * 100)
+        text, color = f"L-Pinch {pct}%", (0, 200, 255)
+    elif result.right_fsm_active:
+        pct = int(result.right_hold_progress * 100)
+        text, color = f"R-Pinch {pct}%", (0, 200, 180)
+    elif stable != 0 and stable in GESTURE_MAP:
+        text, color = f"ACTION: {GESTURE_MAP[stable]['name']}", (0, 255, 0)
     elif result.capture.landmarks is None:
-        status = "No hand detected"
-        color = (128, 128, 128)
+        text, color = "No hand detected", (128, 128, 128)
     else:
-        status = "Tracking..."
-        color = (255, 255, 255)
-
-    cv2.putText(
-        frame,
-        f"{status}  ({score}/{window})",
-        (20, 50),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7, color, 2,
+        text, color = "Tracking", (255, 255, 255)
+ 
+    cv2.putText(frame, f"{text}  ({score}/{window_size})",
+                (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+ 
+ 
+def _draw_click_arc(frame: np.ndarray, result: InferenceResult,
+                    lm_idx: int, progress: float, color: tuple) -> None:
+    """Generic charging arc near a fingertip."""
+    if progress <= 0 or result.capture.landmarks is None:
+        return
+    h, w = frame.shape[:2]
+    lm = result.capture.landmarks
+    ix = int(lm[lm_idx].x * w)
+    iy = int(lm[lm_idx].y * h)
+    cv2.circle(frame, (ix, iy), 22, (60, 60, 60), 2)
+    angle = int(progress * 360)
+    if angle > 0:
+        cv2.ellipse(frame, (ix, iy), (22, 22), -90, 0, angle, color, 2)
+    cv2.circle(frame, (ix, iy), 5, color, -1)
+ 
+ 
+def _draw_pinch_line(frame: np.ndarray, result: InferenceResult,
+                     lm_a: int, lm_b: int, state: ClickState,
+                     color_held: tuple, color_pressing: tuple) -> None:
+    if result.capture.landmarks is None:
+        return
+    if state not in (ClickState.PRESSING, ClickState.HELD):
+        return
+    h, w = frame.shape[:2]
+    lm = result.capture.landmarks
+    a = (int(lm[lm_a].x * w), int(lm[lm_a].y * h))
+    b = (int(lm[lm_b].x * w), int(lm[lm_b].y * h))
+    color = color_held if state is ClickState.HELD else color_pressing
+    cv2.line(frame, a, b, color, 2)
+ 
+ 
+def _draw_scroll_indicator(frame: np.ndarray, result: InferenceResult) -> None:
+    """Arrow near the wrist pointing in scroll direction."""
+    if not result.scroll_active or result.capture.landmarks is None:
+        return
+    h, w = frame.shape[:2]
+    lm = result.capture.landmarks
+    wx = int(lm[0].x * w)
+    wy = int(lm[0].y * h)
+    arrow_len = 30
+    tip_y = wy - arrow_len if result.scroll_delta >= 0 else wy + arrow_len
+    cv2.arrowedLine(frame, (wx, wy), (wx, tip_y), (100, 255, 150), 2, tipLength=0.4)
+ 
+ 
+def _draw_volume_bar(frame: np.ndarray, vol: int) -> None:
+    bar_top, bar_bot = 150, 400
+    bx1, bx2 = 590, 610
+    bar_y = int(np.interp(vol, [0, 100], [bar_bot, bar_top]))
+    cv2.rectangle(frame, (bx1, bar_top), (bx2, bar_bot), (50, 50, 50), -1)
+    cv2.rectangle(frame, (bx1, bar_y),   (bx2, bar_bot), (0, 255, 255), -1)
+    cv2.putText(frame, f"{vol}%", (bx1 - 10, bar_bot + 20),
+                cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 255), 2)
+ 
+ 
+def _draw_landmarks(frame: np.ndarray, result: InferenceResult) -> None:
+    if result.capture.hand_lm_obj is None:
+        return
+    import mediapipe as mp
+    mp.solutions.drawing_utils.draw_landmarks(
+        frame, result.capture.hand_lm_obj, mp.solutions.hands.HAND_CONNECTIONS,
     )
+ 
+ 
+def _draw_overlay(frame: np.ndarray, result: InferenceResult,
+                  ctrl: SystemController, cfg=DEFAULT_CONFIG) -> None:
+    _draw_active_zone(frame, cfg.mouse.frame_margin)
+    _draw_status(frame, result, cfg.debounce.vote_window_size)
+ 
+    # Left-click arc (cyan) at index tip (8)
+    _draw_click_arc(frame, result, 8, result.hold_progress,       (0, 220, 255))
+    # Right-click arc (teal) at middle tip (12)
+    _draw_click_arc(frame, result, 12, result.right_hold_progress, (0, 200, 180))
+ 
+    # Pinch lines
+    _draw_pinch_line(frame, result, 4, 8,  result.fsm_state,
+                     (0, 255, 255), (0, 180, 200))
+    _draw_pinch_line(frame, result, 12, 8, result.right_fsm_state,
+                     (0, 200, 180), (0, 150, 150))
+ 
+    # _draw_scroll_indicator(frame, result)
+    _draw_volume_bar(frame, ctrl.volume)
+    _draw_landmarks(frame, result)
+ 
+ 
 
-    _draw_volume_bar(frame, ctrl.volume, h)
+# ============================================================================
+# Gesture handlers
+# ============================================================================
+ 
+def _handle_left_click(result: InferenceResult, ctrl: SystemController) -> None:
+    if result.click_fired:
+        ctrl.click()
+        print("[main] Left click")
+ 
+ 
+def _handle_right_click(result: InferenceResult, ctrl: SystemController) -> None:
+    if result.right_click_fired:
+        ctrl.right_click()
+        print("[main] Right click")
 
-    if result.capture.hand_lm_obj is not None:
-        import mediapipe as mp
-        mp.solutions.drawing_utils.draw_landmarks(
-            frame,
-            result.capture.hand_lm_obj,
-            mp.solutions.hands.HAND_CONNECTIONS,
-        )
-
-
-def _draw_volume_bar(frame: np.ndarray, vol: int, frame_h: int) -> None:
-    bar_top, bar_bottom = 150, 400
-    bar_x1, bar_x2 = 590, 610
-    bar_y = int(np.interp(vol, [0, 100], [bar_bottom, bar_top]))
-
-    cv2.rectangle(frame, (bar_x1, bar_top), (bar_x2, bar_bottom), (50, 50, 50), -1)
-    cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_bottom), (0, 255, 255), -1)
-    cv2.putText(
-        frame, f"{vol}%", (bar_x1 - 10, bar_bottom + 20),
-        cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 255), 2,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Volume gesture detection (runs in the main thread — pure math, no I/O)
-# ---------------------------------------------------------------------------
-
-def _handle_volume_gesture(
-    result: InferenceResult,
-    ctrl: SystemController,
-    prev_y: list,              
-    last_vol_update: list,
-    cfg=DEFAULT_CONFIG,
-) -> None:
+def _handle_volume(result: InferenceResult, ctrl: SystemController,
+                   prev_y: list, last_update: list, cfg=DEFAULT_CONFIG) -> None:
     if result.capture.landmarks is None or result.stable_gesture != 0:
         prev_y[0] = 0.0
         return
-
-    landmarks = result.capture.landmarks
-    thumb_tip = landmarks[4]
-    index_knuckle = landmarks[5]
-
-    if thumb_tip.y >= index_knuckle.y:
+    lm = result.capture.landmarks
+    if lm[4].y >= lm[5].y:
         prev_y[0] = 0.0
         return
-
-    wrist_y = landmarks[0].y
+    wrist_y = lm[0].y
     if prev_y[0] != 0.0:
         diff = prev_y[0] - wrist_y
-        now = time.monotonic()
-        if (
-            abs(diff) > cfg.volume.sensitivity
-            and (now - last_vol_update[0]) > cfg.volume.cooldown
-        ):
-            change = cfg.volume.step if diff > 0 else -cfg.volume.step
-            new_vol = max(0, min(100, ctrl.volume + change))
-            ctrl.set_volume(new_vol)
-            last_vol_update[0] = now
-
+        now  = time.monotonic()
+        if abs(diff) > cfg.volume.sensitivity and now - last_update[0] > cfg.volume.cooldown:
+            step = cfg.volume.step if diff > 0 else -cfg.volume.step
+            ctrl.set_volume(max(0, min(100, ctrl.volume + step)))
+            last_update[0] = now
     prev_y[0] = wrist_y
+
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +216,10 @@ def _handle_mouse(
     """Move the mouse based on index-finger tip position."""
     if result.capture.landmarks is None or result.stable_gesture != 0:
         return
+    
+    if result.fsm_active:                    return   # left-click pinch
+    if result.right_fsm_active:              return   # right-click pinch
+
 
     landmarks = result.capture.landmarks
     h, w = result.capture.frame.shape[:2]
@@ -172,6 +232,7 @@ def _handle_mouse(
     x_target = float(np.interp(ix, (margin, w - margin), (0, ctrl.screen_w)))
     y_target = float(np.interp(iy, (margin, h - margin), (0, ctrl.screen_h + 50)))
     ctrl.move_mouse_smooth(x_target, y_target)
+
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +262,7 @@ def main() -> None:
 
     # --- Controller (starts its own background threads) ---
     ctrl = SystemController(cfg)
-    ctrl.prime_volume()   # blocking one-shot read at startup
+    ctrl.prime_volume()  
 
     # --- Worker threads ---
     cap_thread = CaptureThread(capture_q, cfg, stop_event)
@@ -212,7 +273,8 @@ def main() -> None:
 
     # --- Mutable state that lives in the main thread only ---
     prev_y: list[float] = [0.0]
-    last_vol_update: list[float] = [0.0]
+    last_vol: list[float] = [0.0]
+
 
     print("[main] Pipeline running. Press 'q' in the OpenCV window to quit.")
 
@@ -230,16 +292,16 @@ def main() -> None:
 
         # Execute any confirmed gesture action
         if result.action is not None:
-            ctrl.execute_gesture(result.action)
+            ctrl.execute_command(result.action)
 
-        # Volume gesture (thumb slide)
-        _handle_volume_gesture(result, ctrl, prev_y, last_vol_update, cfg)
-
-        # Mouse tracking (neutral mode only)
+        _handle_left_click(result, ctrl)
+        _handle_right_click(result, ctrl)
+        _handle_volume(result, ctrl, prev_y, last_vol, cfg)
         _handle_mouse(result, ctrl, cfg)
 
-        # Draw HUD
         _draw_overlay(frame, result, ctrl, cfg)
+
+
 
         cv2.imshow("GestureFlow", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):

@@ -28,7 +28,7 @@ class CameraConfig:
 @dataclass(frozen=True)
 class MediaPipeConfig:
     max_num_hands: int = 1
-    min_detection_tracking: float = 0.8
+    min_detection_confidence: float = 0.8
     min_tracking_confidence: float = 0.5
 
 
@@ -96,16 +96,84 @@ class VolumeConfig:
         default_factory=lambda: _env_float("VOL_SYNC_INTERVAL", 2.0)
     )
 
+# ---------------------------------------------------------------------------
+# Left-click detection (thumb + index pinch FSM)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ClickConfig:
+    close_threshold: float = field(
+        default_factory=lambda: _env_float("CLICK_CLOSE", 0.045)
+    )
+    open_threshold: float = field(
+        default_factory=lambda: _env_float("CLICK_OPEN", 0.065)
+    )
+    min_hold_frames: int = field(
+        default_factory=lambda: _env_int("CLICK_HOLD_FRAMES", 4)
+    )
+    cooldown: float = field(
+        default_factory=lambda: _env_float("CLICK_COOLDOWN", 0.4)
+    )
+
+# ---------------------------------------------------------------------------
+# Right-click detection (middle finger + index pinch FSM)
+# ---------------------------------------------------------------------------
+ 
+@dataclass(frozen=True)
+class RightClickConfig:
+    close_threshold: float = field(
+        default_factory=lambda: _env_float("RCLICK_CLOSE", 0.045)
+    )
+    open_threshold: float = field(
+        default_factory=lambda: _env_float("RCLICK_OPEN", 0.065)
+    )
+    min_hold_frames: int = field(
+        default_factory=lambda: _env_int("RCLICK_HOLD_FRAMES", 5)
+    )
+    cooldown: float = field(
+        default_factory=lambda: _env_float("RCLICK_COOLDOWN", 0.6)
+    )
+ 
+
+
 
 # ---------------------------------------------------------------------------
 # Gesture → hotkey map
 # ---------------------------------------------------------------------------
 
 GESTURE_MAP: dict[int, dict] = {
-    1: {"name": "Spotlight",        "keys": ["command", "space"]},
-    2: {"name": "Mission Control",  "keys": ["ctrl", "up"]},
-    3: {"name": "App Switcher",     "keys": ["command", "tab"]}
+    1: {
+        "name": "Spotlight",
+        "type": "hotkey",
+        "keys": ["command", "space"],
+    },
+    2: {
+        "name": "Mission Control",
+        "type": "hotkey",
+        "keys": ["ctrl", "up"],
+    },
+    3: {
+        "name": "App Switcher",
+        "type": "hotkey",
+        "keys": ["command", "tab"],
+    },
+    4: {
+        "name": "Screenshot",
+        "type": "hotkey",
+        "keys": ["command", "shift", "4"],
+    },
+    5: {
+        "name": "Do Not Disturb",
+        "type": "osascript",
+        "script": (
+            "tell application \"System Events\" to tell process \"Control Center\"\n"
+            "  click menu bar item \"Control Center\" of menu bar 1\n"
+            "end tell"
+        ),
+    },
 }
+ 
+
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +199,8 @@ class AppConfig:
     mouse: MouseConfig = field(default_factory=MouseConfig)
     volume: VolumeConfig = field(default_factory=VolumeConfig)
     queues: QueueConfig = field(default_factory=QueueConfig)
+    click: ClickConfig = field(default_factory=ClickConfig)
+    right_click: RightClickConfig = field(default_factory=RightClickConfig)
  
  
 # Module-level default instance — import this everywhere

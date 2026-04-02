@@ -75,19 +75,50 @@ class SystemController:
     def gesture_map(self) -> dict:
         return GESTURE_MAP
  
-    def execute_gesture(self, gesture_id: int) -> None:
+    def execute_command(self, gesture_id: int) -> None:
         """Fire the hotkey associated with ``gesture_id``."""
         if gesture_id not in GESTURE_MAP:
             return
-        keys = GESTURE_MAP[gesture_id]["keys"]
-        name = GESTURE_MAP[gesture_id]["name"]
-        self._pag.hotkey(*keys)
-        print(f"[controller] Executed: {name}")
+        
+        entry = GESTURE_MAP[gesture_id]
+        name = entry["name"]
+        action_type = entry.get("type", "hotkey")
+
+        if action_type == "hotkey":
+            self._pag.hotkey(*entry["keys"])
+            print(f"[controller] Executed: {name}")
+
+        elif action_type == "osascript":
+            script = entry.get("script", "")
+            threading.Thread(
+                target=lambda: subprocess.run(
+                    ["osascript", "-e", script],
+                    check=False, capture_output=True
+                ),
+                daemon=True,
+            ).start()
+            print(f"[controller] osascript: {name}")
+
+        elif action_type == "shell":
+            cmd = entry.get("cmd", [])
+            threading.Thread(
+                target=lambda: subprocess.run(cmd, check=False, capture_output=True),
+                daemon=True,
+            ).start()
+            print(f"[controller] shell: {name}")
+
 
     # ------------------------------------------------------------------
     # Public: mouse
     # ------------------------------------------------------------------
  
+    def click(self) -> None:
+        self._pag.click()
+ 
+    def right_click(self) -> None:
+        self._pag.rightClick()
+
+
     def move_mouse_smooth(
         self,
         target_x: float,
@@ -131,28 +162,14 @@ class SystemController:
             except Exception as exc:
                 print(f"[controller] Volume sync error: {exc}")
  
-    def _get_volume_once(self) -> Optional[int]:
-        """One-shot blocking volume read.  Only used during startup."""
+    def prime_volume(self) -> None:
         try:
-            cmd = ["osascript", "-e", "output volume of (get volume settings)"]
-            result = subprocess.run(
-                cmd, check=False, capture_output=True, text=True, timeout=2.0
+            r = subprocess.run(
+                ["osascript", "-e", "output volume of (get volume settings)"],
+                check=False, capture_output=True, text=True, timeout=2.0
             )
-            if result.returncode == 0:
-                return int(result.stdout.strip())
+            if r.returncode == 0:
+                with self._vol_lock:
+                    self._volume = int(r.stdout.strip())
         except Exception:
             pass
-        return None
- 
-    def prime_volume(self) -> None:
-        """Synchronously read the real volume once at startup.
- 
-        Call this before the main loop starts so the UI shows the correct
-        initial value rather than the 50 default.
-        """
-        val = self._get_volume_once()
-        if val is not None:
-            with self._vol_lock:
-                self._volume = val
- 
-
