@@ -118,6 +118,17 @@ class SystemController:
     def right_click(self) -> None:
         self._pag.rightClick()
 
+    # ------------------------------------------------------------------
+    # Scroll
+    # ------------------------------------------------------------------
+ 
+    def scroll(self, delta: int) -> None:
+        if delta != 0:
+            self._pag.scroll(delta)
+
+    # ------------------------------------------------------------------
+    # Mouse movement
+    # ------------------------------------------------------------------
 
     def move_mouse_smooth(
         self,

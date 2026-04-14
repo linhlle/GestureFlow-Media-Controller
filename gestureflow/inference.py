@@ -12,7 +12,7 @@ from gestureflow.capture import CaptureResult
 from gestureflow.debouncer import GestureDebouncer
 from gestureflow.utils import normalize_landmarks
 from gestureflow.click_fsm import ClickFSM, ClickState
-
+from gestureflow.scroll_fsm import ScrollFSM, ScrollState
 
 @dataclass
 class InferenceResult:
@@ -34,6 +34,11 @@ class InferenceResult:
     right_fsm_active: bool
     right_fsm_state: ClickState
     right_hold_progress: float
+
+    # Scroll FSM
+    scroll_delta: int
+    scroll_active: bool
+    scroll_state: ScrollState
 
 class InferenceThread(threading.Thread):
     def __init__(
@@ -61,7 +66,7 @@ class InferenceThread(threading.Thread):
         self._left_fsm  = ClickFSM(config=cfg.click,       landmark_a=4,  landmark_b=8)
         # Right-click: middle(12) + index(8)
         self._right_fsm = ClickFSM(config=cfg.right_click,  landmark_a=12, landmark_b=8)
-
+        self._scroll_fsm = ScrollFSM(config=cfg.scroll)
 
     def run(self) -> None:
         print("[inference] Starting inference loop.")
@@ -89,6 +94,7 @@ class InferenceThread(threading.Thread):
             self._debouncer.update(0, 1.0)
             self._left_fsm.update(None)
             self._right_fsm.update(None)
+            self._scroll_fsm.update(None)
             return InferenceResult(
                 capture=capture,
                 stable_gesture=0,
@@ -100,7 +106,8 @@ class InferenceThread(threading.Thread):
                 fsm_state=self._left_fsm.state, hold_progress=0.0,
                 right_click_fired=False, right_fsm_active=False,
                 right_fsm_state=self._right_fsm.state, right_hold_progress=0.0,
-
+                scroll_delta=0, scroll_active=False, 
+                scroll_state=self._scroll_fsm.state
             )
         
 
@@ -116,11 +123,11 @@ class InferenceThread(threading.Thread):
         if stable != 0:
             self._left_fsm.update(None)
             self._right_fsm.update(None)
-            # self._scroll_fsm.update(None)
+            self._scroll_fsm.update(None)
         else:
             self._left_fsm.update(lm)
             self._right_fsm.update(lm)
-            # self._scroll_fsm.update(lm)
+            self._scroll_fsm.update(lm)
  
 
         return InferenceResult(
@@ -138,6 +145,9 @@ class InferenceThread(threading.Thread):
             right_fsm_active=self._right_fsm.is_active,
             right_fsm_state=self._right_fsm.state,
             right_hold_progress=self._right_fsm.hold_progress,
+            scroll_delta=self._scroll_fsm.scroll_delta,
+            scroll_active=self._scroll_fsm.is_active,
+            scroll_state=self._scroll_fsm.state,
         )
 
 

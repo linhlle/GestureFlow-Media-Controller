@@ -41,7 +41,7 @@ from gestureflow.controller import SystemController
 from gestureflow.inference import InferenceResult, InferenceThread
 from gestureflow.utils import models_path
 from gestureflow.click_fsm import ClickState
-
+from gestureflow.scroll_fsm import ScrollState
 
 
 # ============================================================================
@@ -63,9 +63,9 @@ def _draw_status(frame: np.ndarray, result: InferenceResult,
         text, color = "LEFT CLICK", (0, 255, 255)
     elif result.right_click_fired:
         text, color = "RIGHT CLICK", (0, 200, 180)
-    # elif result.scroll_active:
-    #     direction = "UP" if result.scroll_delta > 0 else ("DOWN" if result.scroll_delta < 0 else "...")
-    #     text, color = f"SCROLL {direction}", (100, 255, 150)
+    elif result.scroll_active:
+        direction = "UP" if result.scroll_delta > 0 else ("DOWN" if result.scroll_delta < 0 else "...")
+        text, color = f"SCROLL {direction}", (100, 255, 150)
     elif result.fsm_active:
         pct = int(result.hold_progress * 100)
         text, color = f"L-Pinch {pct}%", (0, 200, 255)
@@ -183,6 +183,10 @@ def _handle_right_click(result: InferenceResult, ctrl: SystemController) -> None
         ctrl.right_click()
         print("[main] Right click")
 
+def _handle_scroll(result: InferenceResult, ctrl: SystemController) -> None:
+    if result.scroll_delta != 0:
+        ctrl.scroll(result.scroll_delta)
+
 def _handle_volume(result: InferenceResult, ctrl: SystemController,
                    prev_y: list, last_update: list, cfg=DEFAULT_CONFIG) -> None:
     if result.capture.landmarks is None or result.stable_gesture != 0:
@@ -219,7 +223,7 @@ def _handle_mouse(
     
     if result.fsm_active:                    return   # left-click pinch
     if result.right_fsm_active:              return   # right-click pinch
-
+    if result.scroll_active:                 return
 
     landmarks = result.capture.landmarks
     h, w = result.capture.frame.shape[:2]
@@ -296,6 +300,7 @@ def main() -> None:
 
         _handle_left_click(result, ctrl)
         _handle_right_click(result, ctrl)
+        _handle_scroll(result, ctrl)
         _handle_volume(result, ctrl, prev_y, last_vol, cfg)
         _handle_mouse(result, ctrl, cfg)
 

@@ -135,6 +135,24 @@ class RightClickConfig:
     )
  
 
+# ---------------------------------------------------------------------------
+# Scroll detection (fist-drag FSM)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ScrollConfig:
+    sensitivity: float = field(
+        default_factory=lambda: _env_float("SCROLL_SENSITIVITY", 0.025)
+    )
+    min_hold_frames: int = field(
+        default_factory=lambda: _env_int("SCROLL_HOLD_FRAMES", 5)
+    )
+    cooldown: float = field(
+        default_factory=lambda: _env_float("SCROLL_COOLDOWN", 0.05)
+    )
+    step: int = field(
+        default_factory=lambda: _env_int("SCROLL_STEP", 3)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +219,7 @@ class AppConfig:
     queues: QueueConfig = field(default_factory=QueueConfig)
     click: ClickConfig = field(default_factory=ClickConfig)
     right_click: RightClickConfig = field(default_factory=RightClickConfig)
- 
+    scroll: ScrollConfig = field(default_factory=ScrollConfig)
  
 # Module-level default instance — import this everywhere
 DEFAULT_CONFIG = AppConfig()
