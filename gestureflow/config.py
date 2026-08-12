@@ -67,8 +67,12 @@ class DebounceConfig:
 
 @dataclass(frozen=True)
 class MouseConfig:
-    smooth_factor: float = field(
-        default_factory=lambda: _env_float("SMOOTH_FACTOR", 5.0)
+    # Time constant of the cursor smoothing filter, in seconds.  Replaces the
+    # old per-frame SMOOTH_FACTOR, which made the cursor feel different at
+    # every frame rate.  Larger = smoother and laggier; the filter closes
+    # ~63% of the remaining distance to the target every tau seconds.
+    smoothing_tau: float = field(
+        default_factory=lambda: _env_float("SMOOTH_TAU", 0.15)
     )
     frame_margin: int = field(
         default_factory=lambda: _env_int("FRAME_MARGIN", 100)

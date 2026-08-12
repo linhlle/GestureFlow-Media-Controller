@@ -11,6 +11,7 @@ import mediapipe as mp
 import numpy as np
  
 from gestureflow.config import AppConfig, DEFAULT_CONFIG
+from gestureflow.utils import drop_oldest_put
 
 @dataclass
 class CaptureResult:
@@ -32,6 +33,12 @@ class CaptureThread(threading.Thread):
         self._q = out_queue
         self._cfg = config or DEFAULT_CONFIG
         self._stop = stop_event or threading.Event()
+        self._dropped = 0
+
+    @property
+    def dropped(self) -> int:
+        """Frames discarded because inference could not keep up."""
+        return self._dropped
 
 
     def run(self) -> None:
@@ -86,11 +93,11 @@ class CaptureThread(threading.Thread):
                     timestamp=time.monotonic(),
                 )
 
-                # Non-blocking put — drop frame if inference is backed up
-                try:
-                    self._q.put_nowait(result)
-                except queue.Full:
-                    pass   # intentional: always use freshest data
+                # Always hand inference the freshest frame.  When the queue is
+                # full the *oldest* frame is evicted, not the one just captured
+                # -- dropping the new frame instead would leave inference
+                # chewing on stale data, which is the opposite of the intent.
+                self._dropped += drop_oldest_put(self._q, result)
 
 
         finally:

@@ -39,7 +39,7 @@ from gestureflow.capture import CaptureThread
 from gestureflow.config import DEFAULT_CONFIG, GESTURE_MAP
 from gestureflow.controller import SystemController
 from gestureflow.inference import InferenceResult, InferenceThread
-from gestureflow.utils import models_path
+from gestureflow.utils import BindingError, models_path, validate_bindings
 from gestureflow.click_fsm import ClickState
 from gestureflow.scroll_fsm import ScrollState
 
@@ -64,7 +64,12 @@ def _draw_status(frame: np.ndarray, result: InferenceResult,
     elif result.right_click_fired:
         text, color = "RIGHT CLICK", (0, 200, 180)
     elif result.scroll_active:
-        direction = "UP" if result.scroll_delta > 0 else ("DOWN" if result.scroll_delta < 0 else "...")
+        if result.scroll_delta > 0:
+            direction = f"UP x{abs(result.scroll_delta)}"
+        elif result.scroll_delta < 0:
+            direction = f"DOWN x{abs(result.scroll_delta)}"
+        else:
+            direction = "ready"
         text, color = f"SCROLL {direction}", (100, 255, 150)
     elif result.fsm_active:
         pct = int(result.hold_progress * 100)
@@ -162,7 +167,7 @@ def _draw_overlay(frame: np.ndarray, result: InferenceResult,
     _draw_pinch_line(frame, result, 12, 8, result.right_fsm_state,
                      (0, 200, 180), (0, 150, 150))
  
-    # _draw_scroll_indicator(frame, result)
+    _draw_scroll_indicator(frame, result)
     _draw_volume_bar(frame, ctrl.volume)
     _draw_landmarks(frame, result)
  
@@ -192,6 +197,15 @@ def _handle_volume(result: InferenceResult, ctrl: SystemController,
     if result.capture.landmarks is None or result.stable_gesture != 0:
         prev_y[0] = 0.0
         return
+    
+    if not result.thumb_raised:
+        prev_y[0] = 0.0
+        return
+    
+    if result.scroll_active:
+        prev_y[0] = 0.0
+        return
+
     lm = result.capture.landmarks
     if lm[4].y >= lm[5].y:
         prev_y[0] = 0.0
@@ -224,6 +238,8 @@ def _handle_mouse(
     if result.fsm_active:                    return   # left-click pinch
     if result.right_fsm_active:              return   # right-click pinch
     if result.scroll_active:                 return
+    if not result.index_extended:            return
+
 
     landmarks = result.capture.landmarks
     h, w = result.capture.frame.shape[:2]
@@ -257,6 +273,16 @@ def main() -> None:
         model = pickle.load(f)
     print(f"[main] Loaded model from {model_file}")
 
+    # Fail fast if the model and the command map disagree about gesture labels,
+    # rather than discovering at runtime that a gesture silently does nothing.
+    try:
+        warnings_ = validate_bindings(model.classes_, list(GESTURE_MAP))
+    except BindingError as exc:
+        print(f"[main] ERROR: {exc}")
+        sys.exit(1)
+    for warning in warnings_:
+        print(f"[main] WARNING: {warning}")
+
     # --- Shared shutdown event ---
     stop_event = threading.Event()
 
@@ -265,8 +291,8 @@ def main() -> None:
     inference_q: queue.Queue = queue.Queue(maxsize=cfg.queues.action_queue_size)
 
     # --- Controller (starts its own background threads) ---
-    ctrl = SystemController(cfg)
-    ctrl.prime_volume()  
+    ctrl = SystemController(cfg, stop_event=stop_event)
+    ctrl.prime_volume()
 
     # --- Worker threads ---
     cap_thread = CaptureThread(capture_q, cfg, stop_event)
@@ -317,6 +343,7 @@ def main() -> None:
     stop_event.set()
     cap_thread.join(timeout=3.0)
     inf_thread.join(timeout=3.0)
+    ctrl.shutdown()
     cv2.destroyAllWindows()
     print("[main] Done.")
 

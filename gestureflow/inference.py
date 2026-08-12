@@ -10,7 +10,7 @@ from typing import Optional, Any
 from gestureflow.config import AppConfig, DEFAULT_CONFIG
 from gestureflow.capture import CaptureResult
 from gestureflow.debouncer import GestureDebouncer
-from gestureflow.utils import normalize_landmarks
+from gestureflow.utils import drop_oldest_put, normalize_landmarks
 from gestureflow.click_fsm import ClickFSM, ClickState
 from gestureflow.scroll_fsm import ScrollFSM, ScrollState, _index_extended, _thumb_raised
 
@@ -57,6 +57,7 @@ class InferenceThread(threading.Thread):
         self._out_q = out_queue
         self._cfg = config or DEFAULT_CONFIG
         self._stop = stop_event or threading.Event()
+        self._dropped = 0
 
         cfg = config or DEFAULT_CONFIG
         self._debouncer = GestureDebouncer(
@@ -87,6 +88,10 @@ class InferenceThread(threading.Thread):
     def stop(self) -> None:
         self._stop.set()
 
+    @property
+    def dropped(self) -> int:
+        """Results discarded because the render loop could not keep up."""
+        return self._dropped
 
     def _process(self, capture: CaptureResult) -> InferenceResult:
         lm = capture.landmarks
@@ -159,15 +164,4 @@ class InferenceThread(threading.Thread):
 
 
     def _emit(self, result: InferenceResult) -> None:
-        try:
-            self._out_q.put_nowait(result)
-        except queue.Full:
-            # Replace state result with fresher one
-            try:
-                self._out_q.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                self._out_q.put_nowait(result)
-            except queue.Full:
-                pass
+        self._dropped += drop_oldest_put(self._out_q, result)
