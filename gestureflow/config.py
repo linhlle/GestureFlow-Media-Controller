@@ -142,7 +142,7 @@ class RightClickConfig:
 @dataclass(frozen=True)
 class ScrollConfig:
     sensitivity: float = field(
-        default_factory=lambda: _env_float("SCROLL_SENSITIVITY", 0.025)
+        default_factory=lambda: _env_float("SCROLL_SENSITIVITY", 0.008)
     )
     min_hold_frames: int = field(
         default_factory=lambda: _env_int("SCROLL_HOLD_FRAMES", 5)
@@ -151,8 +151,13 @@ class ScrollConfig:
         default_factory=lambda: _env_float("SCROLL_COOLDOWN", 0.05)
     )
     step: int = field(
-        default_factory=lambda: _env_int("SCROLL_STEP", 3)
+        default_factory=lambda: _env_int("SCROLL_STEP", 2)
     )
+    velocity_exponent: float = field(
+        default_factory=lambda: _env_float("SCROLL_EXPONENT", 1.6)
+    )
+ 
+
 
 
 # ---------------------------------------------------------------------------

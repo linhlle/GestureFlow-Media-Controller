@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from collections import Counter, deque
 
@@ -34,7 +35,9 @@ class GestureDebouncer:
             else DEFAULT_CONFIG.inference.confidence_threshold
         )
         self._history: deque[int] = deque(maxlen=self._cfg.vote_window_size)
-        self._last_cmd_time: float = 0.0
+        # See ClickFSM._last_click_time: monotonic()'s epoch is undefined, so a
+        # 0.0 seed blocks every command for the first cmd_cooldown seconds.
+        self._last_cmd_time: float = -math.inf
 
     # ------------------------------------------------------------------
     # Public interface

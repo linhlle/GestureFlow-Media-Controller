@@ -14,7 +14,6 @@ class ClickState(Enum):
     IDLE        = auto()
     PRESSING    = auto()
     HELD        = auto()
-    RELEASING   = auto()
 
 
 class ClickFSM:
@@ -30,7 +29,11 @@ class ClickFSM:
         self._state: ClickState = ClickState.IDLE
         self._hold_frames: int = 0
         self._click_fired: bool = False
-        self._last_click_time: float = 0.0
+        # -inf, not 0.0: time.monotonic()'s reference point is undefined, and on
+        # macOS it reads near zero at process start.  Seeding with 0.0 made
+        # "now - last >= cooldown" false for the first cooldown seconds of the
+        # process, silently swallowing every click made right after launch.
+        self._last_click_time: float = -math.inf
 
     
     def update(self, landmarks: Any | None) -> None:
@@ -81,8 +84,9 @@ class ClickFSM:
                 self._reset()
 
         elif self._state is ClickState.HELD:
+            # The click fires on the release edge, never on the press, so a held
+            # pinch does not auto-repeat.
             if dist > cfg.open_threshold:
-                self._state = ClickState.RELEASING
                 now = time.monotonic()
                 if now - self._last_click_time >= cfg.cooldown:
                     self._click_fired = True

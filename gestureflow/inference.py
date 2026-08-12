@@ -12,7 +12,7 @@ from gestureflow.capture import CaptureResult
 from gestureflow.debouncer import GestureDebouncer
 from gestureflow.utils import normalize_landmarks
 from gestureflow.click_fsm import ClickFSM, ClickState
-from gestureflow.scroll_fsm import ScrollFSM, ScrollState
+from gestureflow.scroll_fsm import ScrollFSM, ScrollState, _index_extended, _thumb_raised
 
 @dataclass
 class InferenceResult:
@@ -39,6 +39,8 @@ class InferenceResult:
     scroll_delta: int
     scroll_active: bool
     scroll_state: ScrollState
+    index_extended: bool
+    thumb_raised: bool
 
 class InferenceThread(threading.Thread):
     def __init__(
@@ -107,7 +109,9 @@ class InferenceThread(threading.Thread):
                 right_click_fired=False, right_fsm_active=False,
                 right_fsm_state=self._right_fsm.state, right_hold_progress=0.0,
                 scroll_delta=0, scroll_active=False, 
-                scroll_state=self._scroll_fsm.state
+                scroll_state=self._scroll_fsm.state,
+                index_extended=False, 
+                thumb_raised=False
             )
         
 
@@ -148,6 +152,8 @@ class InferenceThread(threading.Thread):
             scroll_delta=self._scroll_fsm.scroll_delta,
             scroll_active=self._scroll_fsm.is_active,
             scroll_state=self._scroll_fsm.state,
+            index_extended=_index_extended(lm),
+            thumb_raised=_thumb_raised(lm)
         )
 
 

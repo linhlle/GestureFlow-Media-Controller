@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import math
 
 from enum import Enum, auto
 from typing import Any
@@ -17,8 +18,9 @@ class ScrollFSM:
         self._cfg = config or DEFAULT_CONFIG.scroll
         self._state: ScrollState = ScrollState.IDLE
         self._hold_frames: int = 0
-        self._anchor_y: float = 0.0
-        self._last_scroll_time: float= 0.0
+        self._prev_wrist_y: float = 0.0
+        # See ClickFSM._last_click_time: monotonic()'s epoch is undefined.
+        self._last_scroll_time: float = -math.inf
         self._scroll_delta: int = 0
 
 
@@ -27,7 +29,7 @@ class ScrollFSM:
         if landmarks is None:
             self._reset()
             return 
-        fist = _is_fist(landmarks)
+        fist = _is_true_scroll_fist(landmarks)
         wrist_y: float = landmarks[0].y
         self._transition(fist, wrist_y)
 
@@ -52,13 +54,14 @@ class ScrollFSM:
         if self._state is ScrollState.IDLE:
             if fist:
                 self._hold_frames = 1
+                self._prev_wrist_y = wrist_y
                 self._state = ScrollState.FIST_DETECTED
 
         elif self._state is ScrollState.FIST_DETECTED:
             if fist:
                 self._hold_frames += 1
                 if self._hold_frames >= cfg.min_hold_frames:
-                    self._anchor_y = wrist_y
+                    self._prev_wrist_y = wrist_y
                     self._state = ScrollState.SCROLLING
             else:
                 self._reset()
@@ -70,30 +73,76 @@ class ScrollFSM:
             
             now = time.monotonic()
             if now - self._last_scroll_time < cfg.cooldown:
+                self._prev_wrist_y = wrist_y
                 return
             
-            delta_y = self._anchor_y - wrist_y
-            if abs(delta_y) > cfg.sensitivity:
-                clicks = int(delta_y / cfg.sensitivity) * cfg.step
-                self._scroll_delta = clicks
-                self._anchor_y = wrist_y          
-                self._last_scroll_time = now
+            velocity = self._prev_wrist_y - wrist_y
+            self._prev_wrist_y = wrist_y
+            
+            if abs(velocity) > cfg.sensitivity:
+                clicks = _velocity_to_clicks(velocity, cfg)
+                if clicks != 0:
+                    self._scroll_delta = clicks
+                    self._last_scroll_time = now
 
 
     def _reset(self) -> None:
         self._state = ScrollState.IDLE
         self._hold_frames = 0
-        self._anchor_y = 0.0
+        self._prev_wrist_y = 0.0
 
-    
-_FINGERTIP_IDS = (8, 12, 16, 20)
-_KNUCKLE_IDS = (5, 9, 13, 17)
 
-def _is_fist(landmarks: Any, threshold: float = 0.02) -> bool:
+# Landmark coordinates arrive as float32-ish values, so a wrist that moved
+# exactly 2 * sensitivity computes as 2.0000000000000018 rather than 2.0.
+# ceil() then rounds that residue up to a whole extra click -- a 50% overshoot
+# on small movements.  Quantizing first keeps ceil() meaning "round up a real
+# fraction" instead of "round up floating-point noise".
+_CLICK_PRECISION = 9
+
+
+def _velocity_to_clicks(velocity: float, cfg: ScrollConfig) -> int:
+    """Map wrist velocity to a signed scroll-click count."""
+    ratio = round(velocity / cfg.sensitivity, _CLICK_PRECISION)
+    magnitude = round(abs(ratio) ** cfg.velocity_exponent, _CLICK_PRECISION)
+    return int(math.copysign(math.ceil(magnitude), ratio)) * cfg.step
+
+
+
+_INDEX_TIP   = 8    
+_INDEX_PIP   = 6   
+_THUMB_TIP   = 4    
+_THUMB_MCP   = 2    
+_MIDDLE_TIP  = 12  
+_MIDDLE_MCP  = 9    
+_RING_TIP    = 16   
+_RING_MCP    = 13  
+_PINKY_TIP   = 20   
+_PINKY_MCP   = 17  
+ 
+_CURL_PAIRS = (
+    (_INDEX_TIP,  5),   
+    (_MIDDLE_TIP, 9),   
+    (_RING_TIP,   13),  
+    (_PINKY_TIP,  17),  
+)
+ 
+def _index_extended(landmarks: Any, margin: float = 0.04) -> bool:
+    return landmarks[_INDEX_TIP].y < landmarks[_INDEX_PIP].y - margin
+
+def _thumb_raised(landmarks: Any, margin: float = 0.04) -> bool:
+    return landmarks[_THUMB_TIP].y < landmarks[_THUMB_MCP].y - margin
+
+
+def _strict_fist(landmarks: Any, threshold: float = 0.03) -> bool:
     curled = 0
-    for tip_id, knuckle_id in zip(_FINGERTIP_IDS, _KNUCKLE_IDS):
+    for tip_id, knuckle_id in _CURL_PAIRS:
         if landmarks[tip_id].y > landmarks[knuckle_id].y + threshold:
             curled += 1
-    return curled >= 3
+    return curled == 4
  
-
+def _is_true_scroll_fist(landmarks: Any) -> bool:
+    if _index_extended(landmarks):
+        return False
+    if _thumb_raised(landmarks):
+        return False
+    return _strict_fist(landmarks)
