@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live demo — GestureFlow</title>
+<meta name="description" content="See the GestureFlow recognizer run on your own hand, in your browser.">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖐️</text></svg>">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="/">Gesture<span>Flow</span></a>
+    <a class="navlink active" href="/demo.html">Live demo</a>
+    <a class="navlink" href="/builder.html">Command builder</a>
+    <a class="navlink" href="/guide.html">Guide</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <section style="padding-bottom: 1.25rem;">
+    <h2>Recognition preview</h2>
+    <p class="sub">
+      Your camera feed, the detected hand skeleton, and what the recognizer
+      makes of it &mdash; running the same trained model as the desktop app.
+    </p>
+
+    <div class="notice">
+      <strong>This does not control your computer.</strong> It is a preview of
+      the recognizer only. Nothing on this page can move your cursor, press a
+      key, or change your volume &mdash; browsers do not grant web pages that
+      access. The panel on the right shows which mode <em>would</em> be active
+      if the desktop app were running.
+      Video is processed on your device and is never uploaded.
+    </div>
+
+    <div class="demo-grid">
+      <div>
+        <div class="stage">
+          <video id="video" playsinline muted></video>
+          <canvas id="canvas"></canvas>
+          <div class="stage-overlay" id="overlay">
+            <div>
+              <p id="overlay-text">The demo needs access to your camera.</p>
+              <button class="btn" id="start-btn">Start camera</button>
+              <p class="hint" id="overlay-hint" style="margin-top:0.8rem"></p>
+            </div>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top: 0.85rem;">
+          <button class="btn secondary small" id="stop-btn" disabled>Stop camera</button>
+          <span class="hint" id="fps-readout" style="align-self:center"></span>
+        </div>
+      </div>
+
+      <div style="display:grid; gap:1rem;">
+        <div class="panel">
+          <h3>Active mode</h3>
+          <div id="mode-pills" style="display:flex; flex-wrap:wrap; gap:0.4rem;">
+            <span class="mode-pill" data-mode="cursor">cursor</span>
+            <span class="mode-pill" data-mode="left-click">left click</span>
+            <span class="mode-pill" data-mode="right-click">right click</span>
+            <span class="mode-pill" data-mode="scroll">scroll</span>
+            <span class="mode-pill" data-mode="volume">volume</span>
+            <span class="mode-pill" data-mode="command">command</span>
+          </div>
+          <p class="hint" style="margin-top:0.7rem">
+            Exactly one can be active at a time. That exclusivity is enforced by
+            geometric gates and checked by property-based tests in the repo.
+          </p>
+        </div>
+
+        <div class="panel">
+          <h3>Classifier</h3>
+          <div class="readout">
+            <div class="readout-row">
+              <span class="label">Pose</span>
+              <span class="value" id="r-pose">&mdash;</span>
+            </div>
+            <div class="readout-row">
+              <span class="label">Confidence</span>
+              <span class="value" id="r-conf">&mdash;</span>
+            </div>
+            <div class="readout-row">
+              <span class="label">Vote</span>
+              <span class="value" id="r-vote">0/10</span>
+            </div>
+            <div class="bar"><div id="r-vote-bar"></div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Detectors</h3>
+          <div class="readout">
+            <div class="readout-row">
+              <span class="label">Index extended</span>
+              <span class="value off" id="r-index">no</span>
+            </div>
+            <div class="readout-row">
+              <span class="label">Thumb raised</span>
+              <span class="value off" id="r-thumb">no</span>
+            </div>
+            <div class="readout-row">
+              <span class="label">Pinch (L)</span>
+              <span class="value off" id="r-pinch">idle</span>
+            </div>
+            <div class="bar"><div id="r-pinch-bar"></div></div>
+            <div class="readout-row">
+              <span class="label">Pinch (R)</span>
+              <span class="value off" id="r-rpinch">idle</span>
+            </div>
+            <div class="bar"><div id="r-rpinch-bar"></div></div>
+            <div class="readout-row">
+              <span class="label">Scroll</span>
+              <span class="value off" id="r-scroll">idle</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Events</h3>
+          <div class="event-log" id="event-log"></div>
+          <p class="hint" style="margin-top:0.6rem">
+            What the desktop app would have performed.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Gestures to try</h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Do this</th><th>Recognized as</th><th>Desktop app would</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Point your index finger up, thumb tucked</td>
+            <td>Cursor mode</td>
+            <td>Move the pointer</td>
+          </tr>
+          <tr>
+            <td>Touch thumb to index fingertip, hold briefly, release</td>
+            <td>Left click</td>
+            <td>Click</td>
+          </tr>
+          <tr>
+            <td>Touch middle fingertip to index fingertip, hold, release</td>
+            <td>Right click</td>
+            <td>Right click</td>
+          </tr>
+          <tr>
+            <td>Closed fist, then move your hand up or down</td>
+            <td>Scroll</td>
+            <td>Scroll the active window</td>
+          </tr>
+          <tr>
+            <td>Thumb up, index down, move up or down</td>
+            <td>Volume</td>
+            <td>Change system volume</td>
+          </tr>
+          <tr>
+            <td>L-shape, open palm, or two fingers</td>
+            <td>A trained pose</td>
+            <td>Fire the bound shortcut</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">
+      The three trained poses are the ones in the shipped model. The model was
+      trained on one person's hands in one room, so it may read your hands less
+      reliably than it reads the author's &mdash; retraining on your own samples
+      is described in the <a href="/guide.html#retraining">guide</a>.
+    </p>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    Hand landmarks by MediaPipe Tasks, running locally via WebAssembly.
+  </div>
+</footer>
+
+<script type="module" src="/js/demo.js"></script>
+</body>
+</html>

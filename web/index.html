@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GestureFlow</title>
+<meta name="description" content="Control macOS with hand gestures. Try the recognizer in your browser, then run the desktop app for real system control.">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖐️</text></svg>">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="/">Gesture<span>Flow</span></a>
+    <a class="navlink" href="/demo.html">Live demo</a>
+    <a class="navlink" href="/builder.html">Command builder</a>
+    <a class="navlink" href="/guide.html">Guide</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <h1>Control your Mac with your hands.</h1>
+    <p class="lede">
+      GestureFlow tracks one hand through your webcam and turns it into cursor
+      movement, clicks, scrolling, volume, and keyboard shortcuts. Hand
+      landmarks come from MediaPipe; a Random Forest classifies poses; a set of
+      state machines decides when a movement was actually meant as a command.
+    </p>
+    <div class="btn-row">
+      <a class="btn" href="/demo.html">Try the recognizer &rarr;</a>
+      <a class="btn secondary" href="/guide.html">Install the desktop app</a>
+    </div>
+  </header>
+
+  <div class="notice">
+    <strong>What runs where.</strong> A web page runs in a browser sandbox. It
+    cannot move your cursor, press your keyboard shortcuts, or change your
+    system volume &mdash; no website can, and this one does not pretend
+    otherwise. The demo on this site shows you the recognizer working on your
+    own hand. Actually controlling the machine is the desktop app's job.
+  </div>
+
+  <div class="split">
+    <div class="split-card">
+      <h3>In your browser <span class="tag browser">no install</span></h3>
+      <ul>
+        <li>Live hand tracking from your webcam</li>
+        <li>The same feature vector and the same trained forest the desktop app uses</li>
+        <li>The same click, scroll, and debounce state machines, ported to JS</li>
+        <li>A command builder that exports a config file</li>
+        <li>Video never leaves your machine &mdash; there is no server to send it to</li>
+      </ul>
+    </div>
+    <div class="split-card">
+      <h3>On your Mac <span class="tag desktop">python app</span></h3>
+      <ul>
+        <li>Moves the real cursor and sends real clicks</li>
+        <li>Fires keyboard shortcuts and launches apps</li>
+        <li>Adjusts system volume through AppleScript</li>
+        <li>Loads the config you built on this site</li>
+        <li>Needs macOS Accessibility permission, which only you can grant</li>
+      </ul>
+    </div>
+  </div>
+
+  <section>
+    <h2>How it works</h2>
+    <p class="sub">Four stages, each on its own thread.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>What happens</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Capture</strong></td>
+            <td>Grabs a camera frame and runs MediaPipe Hands to get 21 3D
+                landmarks. Reconnects with backoff if the camera disappears.</td>
+          </tr>
+          <tr>
+            <td><strong>Inference</strong></td>
+            <td>Converts landmarks to 63 features &mdash; wrist-relative, then
+                scaled by the largest component, so the vector is the same
+                wherever your hand is in frame and however far from the camera
+                it sits. A 100-tree Random Forest classifies the pose.</td>
+          </tr>
+          <tr>
+            <td><strong>Stabilisation</strong></td>
+            <td>A majority vote over a 10-frame window, plus finite state
+                machines with hysteresis, decides whether a pose was
+                deliberate. This is what separates a gesture from a hand that
+                happened to pass through a shape.</td>
+          </tr>
+          <tr>
+            <td><strong>Action</strong></td>
+            <td>A dedicated thread performs the OS call, so a slow keyboard
+                shortcut never stalls the video. Cursor moves collapse to the
+                newest position; clicks are never dropped.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Your own commands</h2>
+    <p class="sub">
+      Bindings live in a config file, not in the source.
+    </p>
+    <p style="color: var(--text-dim);">
+      Pick a gesture, choose an action, download the file, drop it in
+      <code>~/.gestureflow/</code>. The app validates it on load and picks up
+      edits without a restart. Six action types are supported: keyboard
+      shortcut, single keypress, media key, launch an app, run AppleScript, or
+      run a command.
+    </p>
+    <pre><code>version: 1
+neutral_label: 0
+
+gestures:
+  - label: 1
+    name: Spotlight
+    action:
+      type: hotkey
+      keys: [command, space]</code></pre>
+    <div class="btn-row">
+      <a class="btn" href="/builder.html">Open the command builder &rarr;</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>About performance numbers</h2>
+    <p style="color: var(--text-dim); max-width: 68ch;">
+      This site does not quote a frame rate, a latency figure, an accuracy
+      percentage, or a false-trigger rate, because those depend entirely on the
+      camera, CPU, and lighting in front of them &mdash; a number measured on
+      one machine would tell you nothing reliable about yours.
+    </p>
+    <p style="color: var(--text-dim); max-width: 68ch;">
+      The repository ships the instrumentation to measure all of it on your own
+      hardware: <code>gestureflow bench</code> reports per-stage timings and
+      end-to-end latency as p50/p95/p99, and
+      <code>gestureflow false-triggers</code> replays recorded footage to count
+      actions that fired when you meant nothing. The
+      <a href="/guide.html#measuring">guide</a> shows how to run both.
+    </p>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    GestureFlow &mdash; MIT licensed. Hand tracking by
+    <a href="https://ai.google.dev/edge/mediapipe" rel="noopener">MediaPipe</a>.
+    The browser demo runs entirely on your device.
+  </div>
+</footer>
+
+</body>
+</html>

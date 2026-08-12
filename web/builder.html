@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command builder — GestureFlow</title>
+<meta name="description" content="Bind gestures to macOS actions and export a config the GestureFlow desktop app loads.">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖐️</text></svg>">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="/">Gesture<span>Flow</span></a>
+    <a class="navlink" href="/demo.html">Live demo</a>
+    <a class="navlink active" href="/builder.html">Command builder</a>
+    <a class="navlink" href="/guide.html">Guide</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <section style="padding-bottom:1rem;">
+    <h2>Command builder</h2>
+    <p class="sub">
+      Bind each gesture to something your Mac should do, then download the
+      config and drop it in <code>~/.gestureflow/</code>.
+    </p>
+
+    <div class="notice info">
+      <strong>This page writes a file; the desktop app runs it.</strong>
+      Nothing here executes on your machine. The download is a plain text
+      config that the Python app reads, re-validates, and acts on. If you would
+      rather not download anything,
+      <span id="bridge-hint">start the app with <code>gestureflow bridge</code></span>
+      and it can receive the config directly.
+    </div>
+
+    <div class="builder-grid">
+      <div>
+        <div id="bindings"></div>
+
+        <div class="btn-row" style="margin-top:1rem;">
+          <button class="btn secondary" id="add-btn">+ Add binding</button>
+          <button class="btn secondary" id="reset-btn">Reset to defaults</button>
+          <button class="btn secondary" id="import-btn">Import a config…</button>
+          <input type="file" id="import-file" accept=".yaml,.yml,.json"
+                 style="display:none">
+        </div>
+      </div>
+
+      <div class="preview">
+        <div class="panel">
+          <h3>commands.yaml</h3>
+          <div id="messages"></div>
+          <pre><code id="yaml-preview">…</code></pre>
+          <div class="btn-row" style="margin-top:0.85rem;">
+            <button class="btn" id="download-btn">Download</button>
+            <button class="btn secondary" id="copy-btn">Copy</button>
+            <button class="btn secondary" id="push-btn" title="Requires the local bridge"
+                    disabled>Push to app</button>
+          </div>
+          <p class="hint" id="bridge-status">
+            <span class="status-dot"></span>Local bridge not detected
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Action types</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Type</th><th>What it does</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>hotkey</code></td><td>Sends a key combination</td>
+              <td><code>command + space</code></td></tr>
+          <tr><td><code>keypress</code></td><td>Presses a single key</td>
+              <td><code>escape</code></td></tr>
+          <tr><td><code>media</code></td><td>Play/pause, skip, volume, mute</td>
+              <td><code>playpause</code></td></tr>
+          <tr><td><code>launch</code></td><td>Opens an application</td>
+              <td><code>Notes</code></td></tr>
+          <tr><td><code>applescript</code></td><td>Runs an AppleScript snippet</td>
+              <td><code>tell application "Music" to pause</code></td></tr>
+          <tr><td><code>shell</code></td><td>Runs a command as an argument list</td>
+              <td><code>["say", "hello"]</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">
+      Shell commands are an argument list, not a command string, and the app runs
+      them without a shell. Pipes, redirects, and <code>&amp;&amp;</code> are
+      treated as literal text rather than syntax &mdash; a config file cannot
+      smuggle in a second command through quoting.
+    </p>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    Configs are validated here and again by the app on load.
+  </div>
+</footer>
+
+<script type="module" src="/js/builder.js"></script>
+</body>
+</html>
