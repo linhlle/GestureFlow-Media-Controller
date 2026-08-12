@@ -1,6 +1,6 @@
 # GestureFlow
 
-Real-time hand-gesture control for macOS. One hand, a webcam, and your cursor,
+Control macOS with hand gestures. One hand, a webcam, and your cursor,
 clicks, scrolling, volume, and keyboard shortcuts.
 
 MediaPipe supplies 21 hand landmarks per frame; a Random Forest classifies
