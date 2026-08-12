@@ -8,7 +8,6 @@ that a malicious or malformed config is rejected at load rather than executed.
 from __future__ import annotations
 
 import json
-import textwrap
 
 import pytest
 import yaml
@@ -16,8 +15,6 @@ import yaml
 from gestureflow.commands import (
     ACTION_TYPES,
     SCHEMA_VERSION,
-    Action,
-    Binding,
     CommandConfigError,
     CommandReloader,
     CommandSet,

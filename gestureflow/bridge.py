@@ -35,7 +35,6 @@ import base64
 import hashlib
 import json
 import mimetypes
-import os
 import socket
 import struct
 import threading
@@ -47,9 +46,8 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import unquote, urlparse
 
 from gestureflow.commands import (
-    CommandConfigError,
-    CommandSet,
     USER_COMMANDS_PATH,
+    CommandConfigError,
     dump_yaml,
     parse_commands,
 )
@@ -467,7 +465,7 @@ def serve(host: str = "127.0.0.1", port: int = 8765,
           commands_path: Optional[Path] = None,
           open_browser: bool = True) -> int:
     """Run the bridge alongside the live pipeline."""
-    from gestureflow.app import Pipeline, prepare
+    from gestureflow.app import prepare
     from gestureflow.config import DEFAULT_CONFIG
 
     if not WEB_ROOT.is_dir():
@@ -481,7 +479,7 @@ def serve(host: str = "127.0.0.1", port: int = 8765,
         server.start()
     except OSError as exc:
         print(f"[bridge] Could not bind {host}:{port} — {exc}")
-        print(f"[bridge] Another instance may already be running.")
+        print("[bridge] Another instance may already be running.")
         return 1
 
     print(f"[bridge] Serving the GestureFlow UI at {server.url}")

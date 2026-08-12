@@ -9,7 +9,6 @@ test suite runs without a camera, MediaPipe, or macOS.
 
 from __future__ import annotations
 
-import math
 from types import SimpleNamespace
 
 import pytest
@@ -32,9 +31,7 @@ def _flat_hand(n: int = 21) -> list:
 
 def _identity_hand() -> list:
     """Wrist at origin, landmark 1 at (1, 0, 0) — minimal non-degenerate hand."""
-    coords = [(0.0, 0.0, 0.0)] * 21
-    coords_list = list(coords)
-    # Place landmark 1 at (1, 0, 0) relative to wrist which is also at origin
+    # Landmark 1 sits at (1, 0, 0) relative to the wrist, which is the origin.
     return _make_landmarks(
         [(0.0, 0.0, 0.0)] + [(1.0, 0.0, 0.0)] + [(0.0, 0.0, 0.0)] * 19
     )

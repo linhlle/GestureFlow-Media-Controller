@@ -51,7 +51,7 @@ class MediaPipeConfig:
 # ---------------------------------------------------------------------------
 # Inference / classifier
 # ---------------------------------------------------------------------------
- 
+
 @dataclass(frozen=True)
 class InferenceConfig:
     # Minimum predict_proba score to count a prediction as confident
@@ -98,7 +98,7 @@ class MouseConfig:
 # ---------------------------------------------------------------------------
 # Volume control
 # ---------------------------------------------------------------------------
- 
+
 @dataclass(frozen=True)
 class VolumeConfig:
     sensitivity: float = field(
@@ -138,7 +138,7 @@ class ClickConfig:
 # ---------------------------------------------------------------------------
 # Right-click detection (middle finger + index pinch FSM)
 # ---------------------------------------------------------------------------
- 
+
 @dataclass(frozen=True)
 class RightClickConfig:
     close_threshold: float = field(
@@ -153,7 +153,7 @@ class RightClickConfig:
     cooldown: float = field(
         default_factory=lambda: _env_float("RCLICK_COOLDOWN", 0.6)
     )
- 
+
 
 # ---------------------------------------------------------------------------
 # Scroll detection (fist-drag FSM)
@@ -176,14 +176,14 @@ class ScrollConfig:
     velocity_exponent: float = field(
         default_factory=lambda: _env_float("SCROLL_EXPONENT", 1.6)
     )
- 
+
 
 
 
 # ---------------------------------------------------------------------------
 # Queue sizes — bounded queues prevent runaway memory if a thread falls behind
 # ---------------------------------------------------------------------------
- 
+
 @dataclass(frozen=True)
 class QueueConfig:
     inference_queue_size: int = 2
@@ -205,7 +205,7 @@ class HudConfig:
 # ---------------------------------------------------------------------------
 # Top-level convenience object
 # ---------------------------------------------------------------------------
- 
+
 @dataclass(frozen=True)
 class AppConfig:
     camera: CameraConfig = field(default_factory=CameraConfig)
@@ -219,8 +219,8 @@ class AppConfig:
     right_click: RightClickConfig = field(default_factory=RightClickConfig)
     scroll: ScrollConfig = field(default_factory=ScrollConfig)
     hud: HudConfig = field(default_factory=HudConfig)
- 
+
 # Module-level default instance — import this everywhere
 DEFAULT_CONFIG = AppConfig()
- 
+
 

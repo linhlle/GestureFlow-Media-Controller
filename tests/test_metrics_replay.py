@@ -13,6 +13,8 @@ import math
 import numpy as np
 import pytest
 
+from gestureflow.capture import CaptureResult
+from gestureflow.config import DEFAULT_CONFIG
 from gestureflow.metrics import (
     MetricsRecorder,
     NullMetrics,
@@ -20,8 +22,6 @@ from gestureflow.metrics import (
     percentile,
 )
 from gestureflow.replay import (
-    RECORDING_SCHEMA,
-    Recording,
     RecordingHeader,
     RecordingWriter,
     VirtualClock,
@@ -29,8 +29,6 @@ from gestureflow.replay import (
     read_recording,
     replay,
 )
-from gestureflow.capture import CaptureResult
-from gestureflow.config import DEFAULT_CONFIG
 
 
 class FakeClock:

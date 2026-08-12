@@ -33,13 +33,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
 from gestureflow.app import GestureRouter
 from gestureflow.capture import CaptureResult
-from gestureflow.config import AppConfig, DEFAULT_CONFIG
+from gestureflow.config import DEFAULT_CONFIG, AppConfig
 from gestureflow.inference import InferenceThread
 
 RECORDING_SCHEMA = "gestureflow.recording/1"
@@ -101,7 +101,7 @@ class RecordingWriter:
         if not self._fh.closed:
             self._fh.close()
 
-    def __enter__(self) -> "RecordingWriter":
+    def __enter__(self) -> RecordingWriter:
         return self
 
     def __exit__(self, *exc) -> bool:

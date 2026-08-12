@@ -20,17 +20,14 @@ from gestureflow import actions as act
 from gestureflow.actions import ActionDispatcher
 from gestureflow.app import GestureRouter
 from gestureflow.capture import CaptureResult, CaptureThread
-from gestureflow.commands import CommandSet, load_commands_from_string
 from gestureflow.config import (
+    DEFAULT_CONFIG,
     AppConfig,
     ClickConfig,
     DebounceConfig,
-    DEFAULT_CONFIG,
-    ScrollConfig,
 )
 from gestureflow.inference import InferenceThread
 from gestureflow.metrics import MetricsRecorder
-
 
 # ---------------------------------------------------------------------------
 # Regression: thread subclasses must not shadow threading.Thread._stop

@@ -1,0 +1,26 @@
+# Deliberately narrow. The point is catching real mistakes -- unused imports,
+# undefined names, shadowed builtins -- not enforcing a house style on a
+# codebase that already has one.
+target-version = "py39"
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4"]
+ignore = [
+    "UP045",   # Optional[X]: the codebase uses it consistently
+    "E501",    # long lines: comments here explain reasoning and run long
+    "UP006",   # PEP 585 generics: this targets 3.9
+    "UP007",   # X | Y at runtime: same
+    "UP035",   # typing.Dict etc: same
+    "B008",    # function call in default arg: argparse patterns rely on it
+]
+
+[lint.per-file-ignores]
+# Tests reach into privates deliberately, to assert on internal state.
+"tests/*" = ["B011", "E741"]
+# Scripts insert the project root on sys.path before importing gestureflow, and
+# app.py sets TF log level before importing anything that reads it. Both are
+# deliberate, and both are E402.
+"scripts/*" = ["E402"]
+"gestureflow/app.py" = ["E402"]
+"main.py" = ["E402"]

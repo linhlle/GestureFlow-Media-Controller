@@ -210,3 +210,10 @@ ref.py
 .DS_Store
 repomix-output.xml
 gestureflow/infref.py
+
+# GestureFlow
+bench/
+takes/
+reports/
+models/metrics.json
+models/confusion_matrix.png

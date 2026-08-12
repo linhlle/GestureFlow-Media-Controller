@@ -5,7 +5,7 @@ import time
 from collections import Counter, deque
 from typing import Callable
 
-from gestureflow.config import AppConfig, DebounceConfig, DEFAULT_CONFIG
+from gestureflow.config import DEFAULT_CONFIG, DebounceConfig
 
 
 class GestureDebouncer:
@@ -55,11 +55,11 @@ class GestureDebouncer:
         stable, score = self._majority()
 
         if stable == 0 or score < self._cfg.vote_threshold:
-            return None  
+            return None
 
         now = self._clock()
         if now - self._last_cmd_time < self._cfg.cmd_cooldown:
-            return None  
+            return None
 
         self._last_cmd_time = now
         self._history.clear()

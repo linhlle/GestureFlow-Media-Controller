@@ -10,7 +10,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-from gestureflow.config import AppConfig, DEFAULT_CONFIG
+from gestureflow.config import DEFAULT_CONFIG, AppConfig
 from gestureflow.metrics import (
     HANDOFF_CAPTURE,
     STAGE_GRAB,

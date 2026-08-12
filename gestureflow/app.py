@@ -29,7 +29,6 @@ from __future__ import annotations
 import os
 import pickle
 import queue
-import sys
 import threading
 import time
 import warnings
@@ -45,14 +44,13 @@ warnings.filterwarnings("ignore", category=UserWarning)
 from gestureflow import actions as act
 from gestureflow.actions import ActionDispatcher
 from gestureflow.capture import CaptureThread
-from gestureflow.commands import CommandSet, load_commands
-from gestureflow.config import AppConfig, DEFAULT_CONFIG
-from gestureflow.controller import SystemController
 from gestureflow.click_fsm import ClickState
+from gestureflow.commands import CommandSet, load_commands
+from gestureflow.config import DEFAULT_CONFIG, AppConfig
+from gestureflow.controller import SystemController
 from gestureflow.inference import InferenceResult, InferenceThread
 from gestureflow.metrics import STAGE_RENDER, MetricsRecorder
 from gestureflow.utils import BindingError, models_path, validate_bindings
-
 
 # ============================================================================
 # HUD rendering

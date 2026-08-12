@@ -13,10 +13,8 @@ there.
 from __future__ import annotations
 
 import json
-import math
 import shutil
 import subprocess
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -189,7 +187,7 @@ class TestFeatureVectorParity:
 class TestScrollMathParity:
     def test_velocity_to_clicks_matches(self, parity):
         fixtures, js = parity
-        for i, (velocity, cfg) in enumerate(fixtures["velocity"]):
+        for i, (velocity, _cfg) in enumerate(fixtures["velocity"]):
             expected = _velocity_to_clicks(velocity, DEFAULT_CONFIG.scroll)
             assert js["velocityToClicks"][i] == expected, (
                 f"velocity {velocity}: JS gave {js['velocityToClicks'][i]}, "

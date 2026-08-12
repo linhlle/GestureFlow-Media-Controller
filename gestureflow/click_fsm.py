@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import time
 import math
-
+import time
 from enum import Enum, auto
 from typing import Any, Callable, Union
 
@@ -39,7 +38,7 @@ class ClickFSM:
         # process, silently swallowing every click made right after launch.
         self._last_click_time: float = -math.inf
 
-    
+
     def update(self, landmarks: Any | None) -> None:
         self._click_fired = False
         if landmarks is None:
@@ -51,26 +50,26 @@ class ClickFSM:
     @property
     def click_fired(self) -> bool:
         return self._click_fired
-    
-    @property 
+
+    @property
     def is_active(self) -> bool:
         return self._state in (ClickState.PRESSING, ClickState.HELD)
-    
+
     @property
     def state(self) -> ClickState:
         return self._state
-    
+
     @property
     def hold_progress(self) -> float:
         if self._cfg.min_hold_frames == 0:
             return 1.0
         return min(1.0, self._hold_frames / self._cfg.min_hold_frames)
-    
+
 
     # ------------------------------------------------------------------
     # FSM transitions
     # ------------------------------------------------------------------
-    
+
     def _transition(self, dist: float) -> None:
         cfg = self._cfg
 

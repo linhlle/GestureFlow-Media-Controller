@@ -23,7 +23,6 @@ from gestureflow.utils import (
     validate_bindings,
 )
 
-
 # ---------------------------------------------------------------------------
 # Bug 1: monotonic() epoch — cooldowns suppressed every action after launch
 # ---------------------------------------------------------------------------

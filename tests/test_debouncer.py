@@ -11,11 +11,8 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from gestureflow.config import DebounceConfig
 from gestureflow.debouncer import GestureDebouncer
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

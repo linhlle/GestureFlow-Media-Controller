@@ -58,7 +58,7 @@ def normalize_landmarks(landmark_list: Sequence[Any]) -> list[float]:
     max_val = max(abs(v) for v in relative)
     if max_val == 0.0:
         return [0.0] * 63
-    
+
     return [v / max_val for v in relative]
 
 
@@ -110,8 +110,8 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
 def data_path(filename: str) -> Path:
     return PROJECT_ROOT / "data" / filename
- 
- 
+
+
 def models_path(filename: str) -> Path:
     return PROJECT_ROOT / "models" / filename
 

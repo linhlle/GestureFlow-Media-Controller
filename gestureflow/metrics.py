@@ -31,7 +31,7 @@ import time
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 # Stage names used across the pipeline.  Kept as constants so a typo in one
 # call site cannot silently create a second, separate histogram.
@@ -132,7 +132,7 @@ class MetricsRecorder:
             self._stage_first_ts.setdefault(stage, now)
             self._stage_last_ts[stage] = now
 
-    def timer(self, stage: str) -> "_Timer":
+    def timer(self, stage: str) -> _Timer:
         """Context manager that records how long its block took.
 
         Usage::
@@ -263,7 +263,7 @@ class _Timer:
         self._stage = stage
         self._start = 0.0
 
-    def __enter__(self) -> "_Timer":
+    def __enter__(self) -> _Timer:
         self._start = self._recorder._clock()
         return self
 

@@ -13,7 +13,6 @@ import json
 import os
 import socket
 import struct
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -139,9 +138,16 @@ class WSClient:
         self.response = self._read_headers()
 
     def _read_headers(self) -> bytes:
+        """Read exactly the header block, one byte at a time.
+
+        Reading in chunks would swallow the first WebSocket frame: the server
+        sends the initial state immediately after the handshake, so it often
+        lands in the same TCP segment as the headers, and anything past
+        \\r\\n\\r\\n in that buffer would be discarded.
+        """
         buf = b""
-        while b"\r\n\r\n" not in buf:
-            chunk = self.sock.recv(1024)
+        while not buf.endswith(b"\r\n\r\n"):
+            chunk = self.sock.recv(1)
             if not chunk:
                 break
             buf += chunk

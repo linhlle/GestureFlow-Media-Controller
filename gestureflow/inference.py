@@ -3,14 +3,14 @@ from __future__ import annotations
 import queue
 import threading
 import time
-
-import numpy as np
-
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from gestureflow.config import AppConfig, DEFAULT_CONFIG
+import numpy as np
+
 from gestureflow.capture import CaptureResult
+from gestureflow.click_fsm import ClickFSM, ClickState
+from gestureflow.config import DEFAULT_CONFIG, AppConfig
 from gestureflow.debouncer import GestureDebouncer
 from gestureflow.metrics import (
     HANDOFF_INFERENCE,
@@ -20,9 +20,9 @@ from gestureflow.metrics import (
     MetricsRecorder,
     NullMetrics,
 )
-from gestureflow.utils import drop_oldest_put, normalize_landmarks
-from gestureflow.click_fsm import ClickFSM, ClickState
 from gestureflow.scroll_fsm import ScrollFSM, ScrollState, _index_extended, _thumb_raised
+from gestureflow.utils import drop_oldest_put, normalize_landmarks
+
 
 @dataclass
 class InferenceResult:
@@ -120,7 +120,7 @@ class InferenceThread(threading.Thread):
     def _process(self, capture: CaptureResult) -> InferenceResult:
         lm = capture.landmarks
         if lm is None:
-            # No hand detected -> feed Neutral to debouncer so the vote 
+            # No hand detected -> feed Neutral to debouncer so the vote
             # window drains naturally
             self._debouncer.update(0, 1.0)
             self._left_fsm.update(None)
@@ -132,17 +132,17 @@ class InferenceThread(threading.Thread):
                 vote_score=self._debouncer.vote_score,
                 confidence=0.0,
                 raw_prediction=0,
-                action=None, 
+                action=None,
                 click_fired=False, fsm_active=False,
                 fsm_state=self._left_fsm.state, hold_progress=0.0,
                 right_click_fired=False, right_fsm_active=False,
                 right_fsm_state=self._right_fsm.state, right_hold_progress=0.0,
-                scroll_delta=0, scroll_active=False, 
+                scroll_delta=0, scroll_active=False,
                 scroll_state=self._scroll_fsm.state,
-                index_extended=False, 
+                index_extended=False,
                 thumb_raised=False
             )
-        
+
 
         with self._metrics.timer(STAGE_NORMALIZE):
             normalized_feat = normalize_landmarks(lm)

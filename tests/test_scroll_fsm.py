@@ -10,16 +10,18 @@ Tests for the redesigned ScrollFSM covering:
   - All collision scenarios from the original bugs
 """
 from __future__ import annotations
-import math, time
+
 from types import SimpleNamespace
-import pytest
 
-from gestureflow.scroll_fsm import (
-    ScrollFSM, ScrollState,
-    _index_extended, _thumb_raised, _strict_fist, _is_true_scroll_fist,
-)
 from gestureflow.config import ScrollConfig
-
+from gestureflow.scroll_fsm import (
+    ScrollFSM,
+    ScrollState,
+    _index_extended,
+    _is_true_scroll_fist,
+    _strict_fist,
+    _thumb_raised,
+)
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -251,7 +253,8 @@ class TestScrollFSMTransitions:
 
     def test_interrupted_fist_resets(self):
         f = ScrollFSM(_cfg(hold=5))
-        for _ in range(3): f.update(true_scroll_fist_lms())
+        for _ in range(3):
+            f.update(true_scroll_fist_lms())
         f.update(open_hand_lms())
         assert f.state is ScrollState.IDLE
 

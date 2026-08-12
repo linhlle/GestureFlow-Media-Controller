@@ -26,7 +26,7 @@ from hypothesis import strategies as st
 from gestureflow.app import GestureRouter
 from gestureflow.capture import CaptureResult
 from gestureflow.click_fsm import ClickFSM, ClickState
-from gestureflow.config import ClickConfig, DEFAULT_CONFIG, ScrollConfig
+from gestureflow.config import DEFAULT_CONFIG, ClickConfig, ScrollConfig
 from gestureflow.inference import InferenceResult
 from gestureflow.scroll_fsm import ScrollFSM, ScrollState
 from gestureflow.utils import normalize_landmarks

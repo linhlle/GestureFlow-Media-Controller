@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import time
 import math
-
+import time
 from enum import Enum, auto
 from typing import Any, Callable
 
-from gestureflow.config import ScrollConfig, DEFAULT_CONFIG
+from gestureflow.config import DEFAULT_CONFIG, ScrollConfig
+
 
 class ScrollState(Enum):
     IDLE            = auto()
@@ -33,7 +33,7 @@ class ScrollFSM:
         self._scroll_delta = 0
         if landmarks is None:
             self._reset()
-            return 
+            return
         fist = _is_true_scroll_fist(landmarks)
         wrist_y: float = landmarks[0].y
         self._transition(fist, wrist_y)
@@ -41,15 +41,15 @@ class ScrollFSM:
     @property
     def scroll_delta(self) -> int:
         return self._scroll_delta
-    
+
     @property
     def is_active(self) -> bool:
         return self._state in (ScrollState.FIST_DETECTED, ScrollState.SCROLLING)
-    
+
     @property
     def state(self) -> ScrollState:
         return self._state
-    
+
     # ------------------------------------------------------------------
     # FSM transitions
     # ------------------------------------------------------------------
@@ -75,15 +75,15 @@ class ScrollFSM:
             if not fist:
                 self._reset()
                 return
-            
+
             now = self._clock()
             if now - self._last_scroll_time < cfg.cooldown:
                 self._prev_wrist_y = wrist_y
                 return
-            
+
             velocity = self._prev_wrist_y - wrist_y
             self._prev_wrist_y = wrist_y
-            
+
             if abs(velocity) > cfg.sensitivity:
                 clicks = _velocity_to_clicks(velocity, cfg)
                 if clicks != 0:
@@ -113,24 +113,24 @@ def _velocity_to_clicks(velocity: float, cfg: ScrollConfig) -> int:
 
 
 
-_INDEX_TIP   = 8    
-_INDEX_PIP   = 6   
-_THUMB_TIP   = 4    
-_THUMB_MCP   = 2    
-_MIDDLE_TIP  = 12  
-_MIDDLE_MCP  = 9    
-_RING_TIP    = 16   
-_RING_MCP    = 13  
-_PINKY_TIP   = 20   
-_PINKY_MCP   = 17  
- 
+_INDEX_TIP   = 8
+_INDEX_PIP   = 6
+_THUMB_TIP   = 4
+_THUMB_MCP   = 2
+_MIDDLE_TIP  = 12
+_MIDDLE_MCP  = 9
+_RING_TIP    = 16
+_RING_MCP    = 13
+_PINKY_TIP   = 20
+_PINKY_MCP   = 17
+
 _CURL_PAIRS = (
-    (_INDEX_TIP,  5),   
-    (_MIDDLE_TIP, 9),   
-    (_RING_TIP,   13),  
-    (_PINKY_TIP,  17),  
+    (_INDEX_TIP,  5),
+    (_MIDDLE_TIP, 9),
+    (_RING_TIP,   13),
+    (_PINKY_TIP,  17),
 )
- 
+
 def _index_extended(landmarks: Any, margin: float = 0.04) -> bool:
     return landmarks[_INDEX_TIP].y < landmarks[_INDEX_PIP].y - margin
 
@@ -144,7 +144,7 @@ def _strict_fist(landmarks: Any, threshold: float = 0.03) -> bool:
         if landmarks[tip_id].y > landmarks[knuckle_id].y + threshold:
             curled += 1
     return curled == 4
- 
+
 def _is_true_scroll_fist(landmarks: Any) -> bool:
     if _index_extended(landmarks):
         return False

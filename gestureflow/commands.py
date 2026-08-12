@@ -39,7 +39,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from gestureflow.utils import PROJECT_ROOT
 
@@ -366,7 +366,6 @@ def load_commands(path: Optional[Path] = None) -> CommandSet:
 
 def load_commands_from_string(text: str, fmt: str = "yaml") -> CommandSet:
     """Parse a config held in memory. Used by the bridge and by tests."""
-    fake = Path(f"<string>.{'json' if fmt == 'json' else 'yaml'}")
     if fmt == "json":
         raw = json.loads(text)
     else:

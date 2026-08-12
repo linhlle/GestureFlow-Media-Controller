@@ -8,7 +8,7 @@ import time
 from typing import Optional
 
 from gestureflow.commands import Action, CommandSet, load_commands
-from gestureflow.config import AppConfig, DEFAULT_CONFIG
+from gestureflow.config import DEFAULT_CONFIG, AppConfig
 from gestureflow.utils import drop_oldest_put
 
 
@@ -67,10 +67,10 @@ class SystemController:
     def volume(self) -> int:
         with self._vol_lock:
             return self._volume
-        
+
     def set_volume(self, value: int) -> None:
         """Request a volume change.  Non-blocking — returns immediately.
- 
+
         If a previous request is still being processed, the old value is
         discarded and replaced with the new one so we always move toward
         the most recent desired state.
@@ -85,7 +85,7 @@ class SystemController:
     # ------------------------------------------------------------------
     # Public: gestures
     # ------------------------------------------------------------------
- 
+
     @property
     def commands(self) -> CommandSet:
         return self._commands
@@ -174,17 +174,17 @@ class SystemController:
     # ------------------------------------------------------------------
     # Public: mouse
     # ------------------------------------------------------------------
- 
+
     def click(self) -> None:
         self._pag.click()
- 
+
     def right_click(self) -> None:
         self._pag.rightClick()
 
     # ------------------------------------------------------------------
     # Scroll
     # ------------------------------------------------------------------
- 
+
     def scroll(self, delta: int) -> None:
         if delta != 0:
             self._pag.scroll(delta)
@@ -242,7 +242,7 @@ class SystemController:
     # ------------------------------------------------------------------
     # Private: background workers
     # ------------------------------------------------------------------
- 
+
     def _volume_worker(self) -> None:
         while not self._stop.is_set():
             try:
@@ -278,7 +278,7 @@ class SystemController:
                         self._volume = real_vol
             except Exception as exc:
                 print(f"[controller] Volume sync error: {exc}")
- 
+
     def shutdown(self, timeout: float = 2.0) -> None:
         """Stop both volume workers and wait for them to exit.
 
