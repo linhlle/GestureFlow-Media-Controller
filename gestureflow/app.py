@@ -266,8 +266,23 @@ class GestureRouter:
     # cursor/scroll/volume may be enabled for any given frame; the property
     # test in tests/test_properties.py asserts that over arbitrary landmarks.
 
+    @staticmethod
+    def _geometric_modes_suppressed(result: InferenceResult) -> bool:
+        """True when this frame belongs to the command path, not the hand path.
+
+        Checking `action is not None` as well as `stable_gesture` matters:
+        GestureDebouncer clears its vote history the instant it fires, so on
+        the very frame a command is emitted, stable_gesture already reads 0
+        again.  Keying only off stable_gesture therefore let the cursor jump on
+        exactly the frame a gesture triggered Spotlight -- the collision the
+        mode separation exists to prevent.
+        """
+        if result.capture.landmarks is None:
+            return True
+        return result.stable_gesture != 0 or result.action is not None
+
     def cursor_enabled(self, result: InferenceResult) -> bool:
-        if result.capture.landmarks is None or result.stable_gesture != 0:
+        if self._geometric_modes_suppressed(result):
             return False
         if result.fsm_active or result.right_fsm_active:
             return False
@@ -279,12 +294,12 @@ class GestureRouter:
         return result.index_extended
 
     def scroll_enabled(self, result: InferenceResult) -> bool:
-        if result.capture.landmarks is None or result.stable_gesture != 0:
+        if self._geometric_modes_suppressed(result):
             return False
         return result.scroll_active
 
     def volume_enabled(self, result: InferenceResult) -> bool:
-        if result.capture.landmarks is None or result.stable_gesture != 0:
+        if self._geometric_modes_suppressed(result):
             return False
         if result.scroll_active:
             return False

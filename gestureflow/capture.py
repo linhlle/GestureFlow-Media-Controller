@@ -53,7 +53,7 @@ class CaptureThread(threading.Thread):
         super().__init__(name="capture-thread", daemon=True)
         self._q = out_queue
         self._cfg = config or DEFAULT_CONFIG
-        self._stop = stop_event or threading.Event()
+        self._stop_event = stop_event or threading.Event()
         self._metrics = metrics or NullMetrics()
         self._dropped = 0
         self._status = "starting"
@@ -84,7 +84,7 @@ class CaptureThread(threading.Thread):
 
         deadline = time.monotonic() + cam_cfg.open_timeout
         while not cap.isOpened():
-            if self._stop.is_set():
+            if self._stop_event.is_set():
                 cap.release()
                 return None
             if time.monotonic() > deadline:
@@ -110,20 +110,20 @@ class CaptureThread(threading.Thread):
         consecutive_read_failures = 0
 
         try:
-            while not self._stop.is_set():
+            while not self._stop_event.is_set():
                 if cap is None:
                     self._set_status("reconnecting" if backoff >
                                      cam_cfg.reconnect_backoff_min else "starting")
                     cap = self._open_camera()
                     if cap is None:
-                        if self._stop.is_set():
+                        if self._stop_event.is_set():
                             break
                         self._metrics.count("capture.reconnect_attempts")
                         self._set_status("reconnecting")
                         print(f"[capture] Camera unavailable; retrying in "
                               f"{backoff:.1f}s")
                         # wait() rather than sleep() so shutdown is immediate
-                        if self._stop.wait(backoff):
+                        if self._stop_event.wait(backoff):
                             break
                         backoff = min(backoff * 2, cam_cfg.reconnect_backoff_max)
                         continue
@@ -185,4 +185,4 @@ class CaptureThread(threading.Thread):
             print("[capture] Camera released.")
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()

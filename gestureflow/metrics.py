@@ -24,6 +24,7 @@ still opt-in: `MetricsRecorder(enabled=False)` compiles down to near no-ops.
 from __future__ import annotations
 
 import json
+import math
 import statistics
 import threading
 import time
@@ -60,10 +61,9 @@ def percentile(sorted_values: List[float], q: float) -> float:
     """
     if not sorted_values:
         return float("nan")
-    if len(sorted_values) == 1:
-        return sorted_values[0]
-    rank = max(1, min(len(sorted_values),
-                      int(round(q / 100.0 * len(sorted_values) + 0.5))))
+    n = len(sorted_values)
+    # Standard nearest-rank: rank = ceil(q/100 * n), clamped into [1, n].
+    rank = max(1, min(n, math.ceil(q / 100.0 * n)))
     return sorted_values[rank - 1]
 
 

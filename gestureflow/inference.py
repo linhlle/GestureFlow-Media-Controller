@@ -68,7 +68,7 @@ class InferenceThread(threading.Thread):
         self._in_q = in_queue
         self._out_q = out_queue
         self._cfg = config or DEFAULT_CONFIG
-        self._stop = stop_event or threading.Event()
+        self._stop_event = stop_event or threading.Event()
         self._metrics = metrics or NullMetrics()
         self._dropped = 0
 
@@ -89,7 +89,7 @@ class InferenceThread(threading.Thread):
 
     def run(self) -> None:
         print("[inference] Starting inference loop.")
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 capture: CaptureResult = self._in_q.get(timeout=0.1)
             except queue.Empty:
@@ -110,7 +110,7 @@ class InferenceThread(threading.Thread):
         return self._process(capture)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
 
     @property
     def dropped(self) -> int:

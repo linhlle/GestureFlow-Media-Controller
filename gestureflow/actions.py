@@ -109,7 +109,7 @@ class ActionDispatcher(threading.Thread):
     ) -> None:
         super().__init__(name="action-thread", daemon=True)
         self._ctrl = controller
-        self._stop = stop_event or threading.Event()
+        self._stop_event = stop_event or threading.Event()
         self._metrics = metrics or NullMetrics()
         self._clock = clock
 
@@ -154,7 +154,7 @@ class ActionDispatcher(threading.Thread):
     # -- consumer side -----------------------------------------------------
 
     def run(self) -> None:
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             if not self._work.wait(timeout=0.1):
                 continue
             self._work.clear()
@@ -208,7 +208,7 @@ class ActionDispatcher(threading.Thread):
     # -- lifecycle ---------------------------------------------------------
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
         self._work.set()
 
     def flush(self, timeout: float = 1.0) -> bool:
