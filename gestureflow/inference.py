@@ -1,15 +1,25 @@
 from __future__ import annotations
 
-import threading
 import queue
+import threading
+import time
+
 import numpy as np
 
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Any, Callable, Optional
 
 from gestureflow.config import AppConfig, DEFAULT_CONFIG
 from gestureflow.capture import CaptureResult
 from gestureflow.debouncer import GestureDebouncer
+from gestureflow.metrics import (
+    HANDOFF_INFERENCE,
+    STAGE_FSM,
+    STAGE_NORMALIZE,
+    STAGE_PREDICT,
+    MetricsRecorder,
+    NullMetrics,
+)
 from gestureflow.utils import drop_oldest_put, normalize_landmarks
 from gestureflow.click_fsm import ClickFSM, ClickState
 from gestureflow.scroll_fsm import ScrollFSM, ScrollState, _index_extended, _thumb_raised
@@ -49,7 +59,9 @@ class InferenceThread(threading.Thread):
             in_queue: queue.Queue,
             out_queue: queue.Queue,
             config: AppConfig | None = None,
-            stop_event: threading.Event | None = None
+            stop_event: threading.Event | None = None,
+            metrics: MetricsRecorder | None = None,
+            clock: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__(name="inference-thread", daemon=True)
         self._model = model
@@ -57,19 +69,23 @@ class InferenceThread(threading.Thread):
         self._out_q = out_queue
         self._cfg = config or DEFAULT_CONFIG
         self._stop = stop_event or threading.Event()
+        self._metrics = metrics or NullMetrics()
         self._dropped = 0
 
         cfg = config or DEFAULT_CONFIG
         self._debouncer = GestureDebouncer(
             config=cfg.debounce,
             confidence_threshold=cfg.inference.confidence_threshold,
+            clock=clock,
         )
 
         # Left-click: thumb(4) + index(8)
-        self._left_fsm  = ClickFSM(config=cfg.click,       landmark_a=4,  landmark_b=8)
+        self._left_fsm  = ClickFSM(config=cfg.click,       landmark_a=4,  landmark_b=8,
+                                   clock=clock)
         # Right-click: middle(12) + index(8)
-        self._right_fsm = ClickFSM(config=cfg.right_click,  landmark_a=12, landmark_b=8)
-        self._scroll_fsm = ScrollFSM(config=cfg.scroll)
+        self._right_fsm = ClickFSM(config=cfg.right_click,  landmark_a=12, landmark_b=8,
+                                   clock=clock)
+        self._scroll_fsm = ScrollFSM(config=cfg.scroll, clock=clock)
 
     def run(self) -> None:
         print("[inference] Starting inference loop.")
@@ -81,9 +97,17 @@ class InferenceThread(threading.Thread):
 
 
 
-            self._emit(self._process(capture))
-            
+            self._emit(self.process(capture))
+
         print("[inference] Inference loop stopped.")
+
+    def process(self, capture: CaptureResult) -> InferenceResult:
+        """Run one frame through the recognizer.
+
+        Public so the replay harness and integration tests can drive the exact
+        same code path synchronously, with no threads and no camera.
+        """
+        return self._process(capture)
 
     def stop(self) -> None:
         self._stop.set()
@@ -120,24 +144,30 @@ class InferenceThread(threading.Thread):
             )
         
 
-        normalized_feat = normalize_landmarks(lm)
-        probs: np.ndarray = self._model.predict_proba([normalized_feat])[0]
-        raw_pred = int(np.argmax(probs))
-        confidence = float(probs[raw_pred])
+        with self._metrics.timer(STAGE_NORMALIZE):
+            normalized_feat = normalize_landmarks(lm)
+
+        with self._metrics.timer(STAGE_PREDICT):
+            probs: np.ndarray = self._model.predict_proba([normalized_feat])[0]
+            raw_pred = int(np.argmax(probs))
+            confidence = float(probs[raw_pred])
 
         action = self._debouncer.update(raw_pred, confidence)
         stable = self._debouncer.stable_gesture
 
-        # Pause all Neutral-mode FSMs when a named gesture is active
-        if stable != 0:
-            self._left_fsm.update(None)
-            self._right_fsm.update(None)
-            self._scroll_fsm.update(None)
-        else:
-            self._left_fsm.update(lm)
-            self._right_fsm.update(lm)
-            self._scroll_fsm.update(lm)
- 
+        with self._metrics.timer(STAGE_FSM):
+            # Pause all Neutral-mode FSMs when a named gesture is active.  This
+            # is what makes the modes mutually exclusive: a recognized command
+            # gesture parks the pinch, fist, and thumb detectors entirely.
+            if stable != 0:
+                self._left_fsm.update(None)
+                self._right_fsm.update(None)
+                self._scroll_fsm.update(None)
+            else:
+                self._left_fsm.update(lm)
+                self._right_fsm.update(lm)
+                self._scroll_fsm.update(lm)
+
 
         return InferenceResult(
             capture=capture,
@@ -164,4 +194,8 @@ class InferenceThread(threading.Thread):
 
 
     def _emit(self, result: InferenceResult) -> None:
-        self._dropped += drop_oldest_put(self._out_q, result)
+        self._metrics.observe_queue(HANDOFF_INFERENCE, self._out_q.qsize())
+        dropped = drop_oldest_put(self._out_q, result)
+        if dropped:
+            self._dropped += dropped
+            self._metrics.count("inference.results_dropped", dropped)

@@ -7,7 +7,8 @@ import threading
 import time
 from typing import Optional
 
-from gestureflow.config import AppConfig, DEFAULT_CONFIG, GESTURE_MAP
+from gestureflow.commands import Action, CommandSet, load_commands
+from gestureflow.config import AppConfig, DEFAULT_CONFIG
 from gestureflow.utils import drop_oldest_put
 
 
@@ -23,9 +24,11 @@ class SystemController:
         self,
         config: AppConfig | None = None,
         stop_event: threading.Event | None = None,
+        commands: CommandSet | None = None,
     ) -> None:
         self._cfg = config or DEFAULT_CONFIG
         self._stop = stop_event or threading.Event()
+        self._commands = commands if commands is not None else load_commands()
 
         import pyautogui as _pag
 
@@ -84,41 +87,89 @@ class SystemController:
     # ------------------------------------------------------------------
  
     @property
-    def gesture_map(self) -> dict:
-        return GESTURE_MAP
- 
+    def commands(self) -> CommandSet:
+        return self._commands
+
+    def set_commands(self, commands: CommandSet) -> None:
+        """Swap the binding set at runtime (used by hot-reload)."""
+        self._commands = commands
+
     def execute_command(self, gesture_id: int) -> None:
-        """Fire the hotkey associated with ``gesture_id``."""
-        if gesture_id not in GESTURE_MAP:
+        """Perform the action bound to ``gesture_id``, if any."""
+        binding = self._commands.get(gesture_id)
+        if binding is None:
             return
-        
-        entry = GESTURE_MAP[gesture_id]
-        name = entry["name"]
-        action_type = entry.get("type", "hotkey")
+        try:
+            self.perform_action(binding.action)
+        except Exception as exc:
+            print(f"[controller] {binding.name} failed: {exc}")
+        else:
+            print(f"[controller] Executed: {binding.name}")
 
-        if action_type == "hotkey":
-            self._pag.hotkey(*entry["keys"])
-            print(f"[controller] Executed: {name}")
+    def perform_action(self, action: Action) -> None:
+        """Dispatch one validated action.
 
-        elif action_type == "osascript":
-            script = entry.get("script", "")
-            threading.Thread(
-                target=lambda: subprocess.run(
-                    ["osascript", "-e", script],
-                    check=False, capture_output=True
-                ),
-                daemon=True,
-            ).start()
-            print(f"[controller] osascript: {name}")
+        Every branch here handles a type that commands.parse_action already
+        validated, so this function does no parsing and takes no strings from
+        the config that have not been checked against a whitelist.
+        """
+        kind = action.type
 
-        elif action_type == "shell":
-            cmd = entry.get("cmd", [])
-            threading.Thread(
-                target=lambda: subprocess.run(cmd, check=False, capture_output=True),
-                daemon=True,
-            ).start()
-            print(f"[controller] shell: {name}")
+        if kind == "hotkey":
+            self._pag.hotkey(*action.keys)
 
+        elif kind == "keypress":
+            self._pag.press(action.key)
+
+        elif kind == "media":
+            self._perform_media(action.media)
+
+        elif kind == "launch":
+            # argv form, no shell: the app name cannot break out into a
+            # second command however it is quoted.
+            self._spawn(["open", "-a", action.app])
+
+        elif kind == "applescript":
+            self._spawn(["osascript", "-e", action.script])
+
+        elif kind == "shell":
+            # argv list, executed without shell=True. Pipes, redirects, and
+            # command chaining are structurally impossible here.
+            self._spawn(list(action.argv))
+
+        else:
+            raise ValueError(f"unsupported action type: {kind!r}")
+
+    def _perform_media(self, media: str) -> None:
+        if media == "mute":
+            self._spawn_sync(["osascript", "-e",
+                              "set volume output muted not "
+                              "(output muted of (get volume settings))"])
+            return
+        if media in ("volumeup", "volumedown"):
+            step = self._cfg.volume.step
+            delta = step if media == "volumeup" else -step
+            self.set_volume(max(0, min(100, self.volume + delta)))
+            return
+        key = {
+            "playpause": "playpause",
+            "next": "nexttrack",
+            "previous": "prevtrack",
+        }[media]
+        self._pag.press(key)
+
+    def _spawn(self, argv: list) -> None:
+        """Run a subprocess off the calling thread and never wait on it."""
+        threading.Thread(
+            target=self._spawn_sync, args=(argv,), daemon=True
+        ).start()
+
+    @staticmethod
+    def _spawn_sync(argv: list) -> None:
+        try:
+            subprocess.run(argv, check=False, capture_output=True, timeout=10.0)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"[controller] subprocess failed ({argv[0]}): {exc}")
 
     # ------------------------------------------------------------------
     # Public: mouse

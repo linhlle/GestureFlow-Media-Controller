@@ -16,9 +16,25 @@ def _env_int(key: str, default: int) -> int:
 
 @dataclass(frozen=True)
 class CameraConfig:
-    device_index: int = 0
+    device_index: int = field(default_factory=lambda: _env_int("CAMERA_INDEX", 0))
     width: int = 640
     height: int = 480
+    # Seconds to wait for a device to report itself open before giving up on
+    # this attempt and scheduling a retry.
+    open_timeout: float = field(
+        default_factory=lambda: _env_float("CAMERA_OPEN_TIMEOUT", 5.0)
+    )
+    # Consecutive failed reads before we treat the device as gone rather than
+    # briefly stalled. At ~30 FPS this is roughly a third of a second.
+    read_failure_limit: int = field(
+        default_factory=lambda: _env_int("CAMERA_READ_FAILURE_LIMIT", 10)
+    )
+    reconnect_backoff_min: float = field(
+        default_factory=lambda: _env_float("CAMERA_BACKOFF_MIN", 0.5)
+    )
+    reconnect_backoff_max: float = field(
+        default_factory=lambda: _env_float("CAMERA_BACKOFF_MAX", 10.0)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -165,45 +181,6 @@ class ScrollConfig:
 
 
 # ---------------------------------------------------------------------------
-# Gesture → hotkey map
-# ---------------------------------------------------------------------------
-
-GESTURE_MAP: dict[int, dict] = {
-    1: {
-        "name": "Spotlight",
-        "type": "hotkey",
-        "keys": ["command", "space"],
-    },
-    2: {
-        "name": "Mission Control",
-        "type": "hotkey",
-        "keys": ["ctrl", "up"],
-    },
-    3: {
-        "name": "App Switcher",
-        "type": "hotkey",
-        "keys": ["command", "tab"],
-    },
-    4: {
-        "name": "Screenshot",
-        "type": "hotkey",
-        "keys": ["command", "shift", "4"],
-    },
-    5: {
-        "name": "Do Not Disturb",
-        "type": "osascript",
-        "script": (
-            "tell application \"System Events\" to tell process \"Control Center\"\n"
-            "  click menu bar item \"Control Center\" of menu bar 1\n"
-            "end tell"
-        ),
-    },
-}
- 
-
-
-
-# ---------------------------------------------------------------------------
 # Queue sizes — bounded queues prevent runaway memory if a thread falls behind
 # ---------------------------------------------------------------------------
  
@@ -211,6 +188,18 @@ GESTURE_MAP: dict[int, dict] = {
 class QueueConfig:
     inference_queue_size: int = 2
     action_queue_size: int = 1
+
+
+# ---------------------------------------------------------------------------
+# HUD
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class HudConfig:
+    # If drawing one frame costs more than 1/min_fps seconds, the HUD sheds
+    # its most expensive element (the landmark skeleton) until it fits again.
+    # Recognition is never affected -- only the overlay gets simpler.
+    min_fps: float = field(default_factory=lambda: _env_float("HUD_MIN_FPS", 20.0))
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +218,7 @@ class AppConfig:
     click: ClickConfig = field(default_factory=ClickConfig)
     right_click: RightClickConfig = field(default_factory=RightClickConfig)
     scroll: ScrollConfig = field(default_factory=ScrollConfig)
+    hud: HudConfig = field(default_factory=HudConfig)
  
 # Module-level default instance — import this everywhere
 DEFAULT_CONFIG = AppConfig()

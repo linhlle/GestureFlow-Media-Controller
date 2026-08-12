@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import time
 from collections import Counter, deque
+from typing import Callable
 
 from gestureflow.config import AppConfig, DebounceConfig, DEFAULT_CONFIG
 
@@ -27,8 +28,10 @@ class GestureDebouncer:
         self,
         config: DebounceConfig | None = None,
         confidence_threshold: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._cfg = config or DEFAULT_CONFIG.debounce
+        self._clock = clock
         self._confidence_threshold = (
             confidence_threshold
             if confidence_threshold is not None
@@ -54,7 +57,7 @@ class GestureDebouncer:
         if stable == 0 or score < self._cfg.vote_threshold:
             return None  
 
-        now = time.monotonic()
+        now = self._clock()
         if now - self._last_cmd_time < self._cfg.cmd_cooldown:
             return None  
 

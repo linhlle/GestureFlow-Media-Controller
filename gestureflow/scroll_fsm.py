@@ -4,7 +4,7 @@ import time
 import math
 
 from enum import Enum, auto
-from typing import Any
+from typing import Any, Callable
 
 from gestureflow.config import ScrollConfig, DEFAULT_CONFIG
 
@@ -14,8 +14,13 @@ class ScrollState(Enum):
     SCROLLING       = auto()
 
 class ScrollFSM:
-    def __init__(self, config: ScrollConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: ScrollConfig | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._cfg = config or DEFAULT_CONFIG.scroll
+        self._clock = clock
         self._state: ScrollState = ScrollState.IDLE
         self._hold_frames: int = 0
         self._prev_wrist_y: float = 0.0
@@ -71,7 +76,7 @@ class ScrollFSM:
                 self._reset()
                 return
             
-            now = time.monotonic()
+            now = self._clock()
             if now - self._last_scroll_time < cfg.cooldown:
                 self._prev_wrist_y = wrist_y
                 return

@@ -4,7 +4,7 @@ import time
 import math
 
 from enum import Enum, auto
-from typing import Union, Any
+from typing import Any, Callable, Union
 
 from gestureflow.config import DEFAULT_CONFIG, ClickConfig, RightClickConfig
 
@@ -22,10 +22,14 @@ class ClickFSM:
             config: PinchConfig | None = None,
             landmark_a: int = 4,
             landmark_b: int = 8,
+            clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._cfg = config or DEFAULT_CONFIG.click
         self._lm_a = landmark_a
         self._lm_b = landmark_b
+        # Injected so tests and replays drive time explicitly instead of
+        # sleeping, and so a recorded session replays at its original cadence.
+        self._clock = clock
         self._state: ClickState = ClickState.IDLE
         self._hold_frames: int = 0
         self._click_fired: bool = False
@@ -87,7 +91,7 @@ class ClickFSM:
             # The click fires on the release edge, never on the press, so a held
             # pinch does not auto-repeat.
             if dist > cfg.open_threshold:
-                now = time.monotonic()
+                now = self._clock()
                 if now - self._last_click_time >= cfg.cooldown:
                     self._click_fired = True
                     self._last_click_time = now

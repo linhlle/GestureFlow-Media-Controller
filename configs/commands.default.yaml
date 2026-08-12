@@ -1,0 +1,55 @@
+# GestureFlow default command bindings.
+#
+# This file reproduces the bindings the app shipped with. Copy it to
+# ~/.gestureflow/commands.yaml to customize, or build one at the website's
+# command builder and save it there.
+#
+# `label` is the integer class the gesture model predicts. The shipped model
+# predicts 0-3 only, so bindings for labels above 3 need a retrained model --
+# GestureFlow warns at startup if a binding can never fire.
+#
+#   0  Neutral    (no action; enables cursor / click / scroll / volume modes)
+#   1  L-Shape
+#   2  High-Five
+#   3  2-Finger
+
+version: 1
+neutral_label: 0
+
+gestures:
+  - label: 1
+    name: Spotlight
+    description: Open Spotlight search
+    action:
+      type: hotkey
+      keys: [command, space]
+
+  - label: 2
+    name: Mission Control
+    description: Show all open windows
+    action:
+      type: hotkey
+      keys: [ctrl, up]
+
+  - label: 3
+    name: App Switcher
+    description: Cycle between applications
+    action:
+      type: hotkey
+      keys: [command, tab]
+
+# Bindings for gestures the shipped model cannot predict yet. Collect data with
+# `python scripts/data_logger.py`, retrain, then move these into the list above.
+#
+#  - label: 4
+#    name: Screenshot
+#    description: Capture a selected region
+#    action:
+#      type: hotkey
+#      keys: [command, shift, "4"]
+#
+#  - label: 5
+#    name: Open Notes
+#    action:
+#      type: launch
+#      app: Notes
