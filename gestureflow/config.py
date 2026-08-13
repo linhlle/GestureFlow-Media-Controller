@@ -83,12 +83,32 @@ class DebounceConfig:
 
 @dataclass(frozen=True)
 class MouseConfig:
-    # Time constant of the cursor smoothing filter, in seconds.  Replaces the
-    # old per-frame SMOOTH_FACTOR, which made the cursor feel different at
-    # every frame rate.  Larger = smoother and laggier; the filter closes
-    # ~63% of the remaining distance to the target every tau seconds.
-    smoothing_tau: float = field(
-        default_factory=lambda: _env_float("SMOOTH_TAU", 0.15)
+    # One Euro filter parameters. A fixed-time-constant low-pass forces a
+    # choice between jitter and lag: enough smoothing to settle a still hand
+    # is too much to follow a fast one. One Euro adapts its cutoff to hand
+    # speed instead, so a nearly-still hand is filtered hard and a fast one
+    # is barely filtered at all.
+    #
+    # min_cutoff (Hz): the cutoff when the hand is stationary. Lower = steadier
+    # pointer, but more lag when motion starts.
+    min_cutoff: float = field(
+        default_factory=lambda: _env_float("CURSOR_MIN_CUTOFF", 0.4)
+    )
+    # beta: how aggressively the cutoff opens up with speed. Higher = more
+    # responsive to fast movement, at the cost of letting more jitter through
+    # during it (which the eye does not notice while the pointer is moving).
+    beta: float = field(
+        default_factory=lambda: _env_float("CURSOR_BETA", 0.002)
+    )
+    # Cutoff for the internal speed estimate. Rarely worth changing.
+    derivative_cutoff: float = field(
+        default_factory=lambda: _env_float("CURSOR_DCUTOFF", 0.6)
+    )
+    # Longest gap the filter will treat as a real interval. A larger gap means
+    # the stream stalled (hand left frame, thread descheduled); without this
+    # the filter would compute a near-1.0 blend factor and teleport the cursor.
+    max_dt: float = field(
+        default_factory=lambda: _env_float("CURSOR_MAX_DT", 0.1)
     )
     frame_margin: int = field(
         default_factory=lambda: _env_int("FRAME_MARGIN", 100)
@@ -122,11 +142,16 @@ class VolumeConfig:
 
 @dataclass(frozen=True)
 class ClickConfig:
+    # Thresholds are fractions of the hand's own size (wrist to middle MCP),
+    # not absolute image distances.  Converted from the previous absolute
+    # values using the median hand scale measured over the recorded dataset
+    # (0.159), so the feel at the original working distance is unchanged --
+    # but the gesture now behaves the same near and far from the camera.
     close_threshold: float = field(
-        default_factory=lambda: _env_float("CLICK_CLOSE", 0.045)
+        default_factory=lambda: _env_float("CLICK_CLOSE", 0.28)
     )
     open_threshold: float = field(
-        default_factory=lambda: _env_float("CLICK_OPEN", 0.065)
+        default_factory=lambda: _env_float("CLICK_OPEN", 0.41)
     )
     min_hold_frames: int = field(
         default_factory=lambda: _env_int("CLICK_HOLD_FRAMES", 4)
@@ -141,11 +166,15 @@ class ClickConfig:
 
 @dataclass(frozen=True)
 class RightClickConfig:
+    # Tighter than the left-click pinch. Middle and index fingertips sit close
+    # together in any curled hand, so this pair needs a deliberate touch to
+    # count. A fist additionally suppresses both click FSMs outright -- see
+    # InferenceThread._process.
     close_threshold: float = field(
-        default_factory=lambda: _env_float("RCLICK_CLOSE", 0.045)
+        default_factory=lambda: _env_float("RCLICK_CLOSE", 0.22)
     )
     open_threshold: float = field(
-        default_factory=lambda: _env_float("RCLICK_OPEN", 0.065)
+        default_factory=lambda: _env_float("RCLICK_OPEN", 0.38)
     )
     min_hold_frames: int = field(
         default_factory=lambda: _env_int("RCLICK_HOLD_FRAMES", 5)
@@ -161,8 +190,10 @@ class RightClickConfig:
 
 @dataclass(frozen=True)
 class ScrollConfig:
+    # Wrist velocity per frame, as a fraction of hand scale. Also converted
+    # from the previous absolute 0.008 at the measured median scale.
     sensitivity: float = field(
-        default_factory=lambda: _env_float("SCROLL_SENSITIVITY", 0.008)
+        default_factory=lambda: _env_float("SCROLL_SENSITIVITY", 0.05)
     )
     min_hold_frames: int = field(
         default_factory=lambda: _env_int("SCROLL_HOLD_FRAMES", 5)

@@ -27,7 +27,10 @@ class FakeClock:
         self.now += seconds
 
 
-def cfg(close=0.045, open_=0.065, hold=4, cooldown=0.4) -> ClickConfig:
+# Thresholds are fractions of hand scale now. The fixture hand below has
+# scale 0.20, so a 0.28 close threshold means the fingertips must come within
+# 0.056 of each other in fixture coordinates.
+def cfg(close=0.28, open_=0.41, hold=4, cooldown=0.4) -> ClickConfig:
     return ClickConfig(close_threshold=close, open_threshold=open_,
                        min_hold_frames=hold, cooldown=cooldown)
 
@@ -39,6 +42,11 @@ def lms(distance: float, lm_a: int = 4, lm_b: int = 8):
     cannot accidentally bring an unrelated pair within the close threshold.
     """
     out = [SimpleNamespace(x=float(i), y=float(i), z=0.0) for i in range(21)]
+    # A real hand scale (wrist 0 -> middle MCP 9 = 0.20), so the ratio
+    # thresholds mean something. Without it hand_scale would be enormous and
+    # every pinch would read as closed.
+    out[0] = SimpleNamespace(x=0.5, y=0.75, z=0.0)
+    out[9] = SimpleNamespace(x=0.5, y=0.55, z=0.0)
     out[lm_a] = SimpleNamespace(x=0.5, y=0.5, z=0.0)
     out[lm_b] = SimpleNamespace(x=0.5 + distance, y=0.5, z=0.0)
     return out
@@ -116,19 +124,19 @@ class TestReleaseEdge:
         assert not fsm.click_fired
 
     def test_hysteresis_band_does_not_release(self):
-        # Between close (0.045) and open (0.065) the state must hold. Without
-        # the dead band a hand hovering at the boundary chatters clicks.
-        fsm = ClickFSM(cfg(close=0.045, open_=0.065, hold=2))
+        # Between close and open the state must hold. Without the dead band a
+        # hand hovering at the boundary chatters clicks.
+        fsm = ClickFSM(cfg(close=0.28, open_=0.41, hold=2))
         press_and_hold(fsm, 4, distance=0.01)
         assert fsm.state is ClickState.HELD
-        fsm.update(lms(0.055))
+        fsm.update(lms(0.070))   # inside the 0.056-0.082 dead band
         assert fsm.state is ClickState.HELD
         assert not fsm.click_fired
 
     def test_opening_past_the_band_releases(self):
-        fsm = ClickFSM(cfg(close=0.045, open_=0.065, hold=2))
+        fsm = ClickFSM(cfg(close=0.28, open_=0.41, hold=2))
         press_and_hold(fsm, 4, distance=0.01)
-        fsm.update(lms(0.08))
+        fsm.update(lms(0.10))    # past the 0.082 open threshold
         assert fsm.click_fired
 
 

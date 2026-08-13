@@ -55,6 +55,16 @@ class MoveCursor:
 
 
 @dataclass(frozen=True)
+class ReleaseCursor:
+    """Cursor mode disengaged; the smoothing filter should forget its state.
+
+    Discrete rather than coalescing: if this were dropped the next pointing
+    gesture would be filtered against a stale position from before the gap.
+    """
+    captured_at: float = 0.0
+
+
+@dataclass(frozen=True)
 class Click:
     button: str = "left"          # "left" | "right"
     captured_at: float = 0.0
@@ -80,7 +90,7 @@ class Command:
 
 
 # Discrete events are never dropped; cursor moves are.
-DISCRETE_TYPES = (Click, Scroll, SetVolume, Command)
+DISCRETE_TYPES = (Click, Scroll, SetVolume, Command, ReleaseCursor)
 
 
 class ActionDispatcher(threading.Thread):
@@ -189,7 +199,13 @@ class ActionDispatcher(threading.Thread):
 
     def _dispatch(self, action: Any) -> None:
         if isinstance(action, MoveCursor):
-            self._ctrl.move_mouse_smooth(action.x, action.y)
+            # Pass the capture timestamp through: the filter must measure the
+            # interval the hand moved over, not however long this thread took
+            # to reach the action.
+            self._ctrl.move_mouse_smooth(action.x, action.y,
+                                         now=action.captured_at or None)
+        elif isinstance(action, ReleaseCursor):
+            self._ctrl.release_cursor()
         elif isinstance(action, Click):
             if action.button == "right":
                 self._ctrl.right_click()

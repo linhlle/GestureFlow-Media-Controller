@@ -140,9 +140,39 @@ class TestRecognizerParity:
         assert match and int(match.group(1)) == _CLICK_PRECISION
 
     def test_geometric_margins_match(self, src):
-        # _index_extended / _thumb_raised use a 0.04 margin; _strict_fist 0.03.
-        assert "margin = 0.04" in src
-        assert "threshold = 0.03" in src
+        """Margins are ratios of hand scale in both languages."""
+        import inspect
+
+        from gestureflow import scroll_fsm as sf
+
+        for fn, param in ((sf._index_extended, "margin"),
+                          (sf._thumb_raised, "margin"),
+                          (sf._strict_fist, "threshold")):
+            expected = inspect.signature(fn).parameters[param].default
+            assert f"{param} = {expected}" in src, (
+                f"{fn.__name__}'s {param} default ({expected}) is not "
+                f"mirrored in recognizer.js"
+            )
+
+    def test_hand_scale_reference_landmarks_match(self, src):
+        """Both sides must measure hand scale wrist(0) -> middle MCP(9)."""
+        assert "handScale" in src
+        block = re.search(r"export function handScale\(landmarks\) \{(.*?)\n\}",
+                          src, re.S).group(1)
+        assert "LM.WRIST" in block and "LM.MIDDLE_MCP" in block
+
+    def test_fist_suppresses_the_click_fsms(self, src):
+        """A fist must resolve to scroll in the browser too, never right-click."""
+        assert "isTrueScrollFist(landmarks)" in src
+        assert "fist ? null : landmarks" in src
+
+    def test_cursor_is_not_gated_on_thumb_raised(self, src):
+        """The regression that disabled cursor mode must not return in JS."""
+        block = re.search(r"const cursorActive = (.*?);", src, re.S).group(1)
+        assert "thumbUp" not in block, (
+            "cursorActive is gated on thumbUp again; that is the bug that "
+            "disabled cursor mode on ~75% of frames"
+        )
 
 
 # ---------------------------------------------------------------------------

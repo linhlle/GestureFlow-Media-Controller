@@ -51,19 +51,18 @@ out.predicates = fixtures.predicates.map((rows) => {
   };
 });
 
-// --- click FSM over a distance sequence ------------------------------------
+// --- click FSM over a landmark sequence -------------------------------------
+// Landmarks come from the fixture rather than being rebuilt here. Constructing
+// them on both sides meant the two could disagree about the hand itself, and
+// once thresholds became ratios of hand scale that disagreement silently made
+// the comparison meaningless.
 out.clickSequences = fixtures.clickSequences.map((seq) => {
   const fsm = new ClickFSM(DEFAULTS.click);
-  const events = [];
-  seq.forEach((dist, i) => {
-    const lm = Array.from({ length: 21 }, (_, k) => ({ x: k, y: k, z: 0 }));
-    lm[4] = { x: 0.5, y: 0.5, z: 0 };
-    lm[8] = { x: 0.5 + dist, y: 0.5, z: 0 };
-    fsm.update(lm, i / 30);
-    events.push({ state: fsm.state, fired: fsm.clickFired,
-                  progress: Number(fsm.holdProgress.toFixed(6)) });
+  return seq.map(([rows, t]) => {
+    fsm.update(toLm(rows), t);
+    return { state: fsm.state, fired: fsm.clickFired,
+             progress: Number(fsm.holdProgress.toFixed(6)) };
   });
-  return events;
 });
 
 // --- scroll FSM over a wrist track -----------------------------------------

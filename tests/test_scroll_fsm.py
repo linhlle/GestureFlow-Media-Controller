@@ -25,7 +25,9 @@ from gestureflow.scroll_fsm import (
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _cfg(sens=0.008, hold=5, cd=0.0, step=2, exp=1.6):
+# Fixture hand_scale is 0.15, so a sensitivity of 0.05 corresponds to the
+# 0.0075 of raw wrist travel the old absolute 0.008 asked for.
+def _cfg(sens=0.05, hold=5, cd=0.0, step=2, exp=1.6):
     return ScrollConfig(
         sensitivity=sens,
         min_hold_frames=hold,
@@ -34,12 +36,28 @@ def _cfg(sens=0.008, hold=5, cd=0.0, step=2, exp=1.6):
         velocity_exponent=exp,
     )
 
+# Thresholds are ratios of hand scale now, so fixtures need a hand with a real
+# size. Wrist (0) at y=0.75 and middle MCP (9) at y=0.55 gives hand_scale=0.20,
+# which makes the default 0.25 margin worth 0.05 in these coordinates.
+HAND_SCALE = 0.20
+
+
 def _lms21():
-    return [SimpleNamespace(x=0.5, y=0.5, z=0.0) for _ in range(21)]
+    lms = [SimpleNamespace(x=0.5, y=0.5, z=0.0) for _ in range(21)]
+    lms[0] = SimpleNamespace(x=0.5, y=0.75, z=0.0)   # wrist
+    lms[9] = SimpleNamespace(x=0.5, y=0.55, z=0.0)   # middle MCP
+    return lms
 
 
 def true_scroll_fist_lms(wrist_y=0.5):
-    """All 4 non-thumb tips curled, index NOT extended, thumb NOT raised."""
+    """All 4 non-thumb tips curled, index NOT extended, thumb NOT raised.
+
+    Moving `wrist_y` translates the *whole* hand, not just the wrist landmark.
+    A hand is rigid between the wrist and the knuckles, so moving one without
+    the other would shrink hand_scale as the hand travels and make every
+    scale-relative threshold drift mid-gesture.
+    """
+    dy = wrist_y - 0.5
     lms = _lms21()
     lms[0]  = SimpleNamespace(x=0.5, y=wrist_y,  z=0.0)   # wrist
     # curl all 4 fingers: tip.y > mcp.y + threshold
@@ -50,7 +68,11 @@ def true_scroll_fist_lms(wrist_y=0.5):
     lms[6]  = SimpleNamespace(x=0.5, y=0.40, z=0.0)       # PIP above tip (y=0.45)
     # thumb NOT raised: tip.y >= mcp.y
     lms[2]  = SimpleNamespace(x=0.5, y=0.40, z=0.0)       # thumb MCP
+    lms[3]  = SimpleNamespace(x=0.5, y=0.42, z=0.0)       # thumb IP
     lms[4]  = SimpleNamespace(x=0.5, y=0.45, z=0.0)       # thumb tip NOT above MCP
+    # Translate everything except the wrist, which is already placed.
+    for i in range(1, 21):
+        lms[i] = SimpleNamespace(x=lms[i].x, y=lms[i].y + dy, z=lms[i].z)
     return lms
 
 
@@ -63,10 +85,17 @@ def index_up_mouse_lms():
 
 
 def thumb_raised_volume_lms():
-    """Thumb raised — volume mode. Should NOT trigger scroll."""
+    """Thumb raised — volume mode. Should NOT trigger scroll.
+
+    The thumb must be *straight* (tip above IP above MCP) and clear of the
+    index knuckle, which is what distinguishes a deliberate thumbs-up from the
+    folded thumb of a fist.
+    """
     lms = true_scroll_fist_lms()
-    lms[2] = SimpleNamespace(x=0.5, y=0.50, z=0.0)   # thumb MCP lower
-    lms[4] = SimpleNamespace(x=0.5, y=0.30, z=0.0)   # thumb tip ABOVE MCP by >0.04
+    lms[2] = SimpleNamespace(x=0.5, y=0.55, z=0.0)   # thumb MCP
+    lms[3] = SimpleNamespace(x=0.5, y=0.44, z=0.0)   # thumb IP
+    lms[4] = SimpleNamespace(x=0.5, y=0.30, z=0.0)   # thumb tip, well clear
+    lms[5] = SimpleNamespace(x=0.5, y=0.50, z=0.0)   # index MCP
     return lms
 
 
@@ -108,32 +137,50 @@ class TestIndexExtended:
         """tip just 0.01 above PIP — not enough to qualify as extended."""
         lms = _lms21()
         lms[6] = SimpleNamespace(x=0.5, y=0.50, z=0.0)
-        lms[8] = SimpleNamespace(x=0.5, y=0.49, z=0.0)   # only 0.01 above (< 0.04 margin)
+        lms[8] = SimpleNamespace(x=0.5, y=0.49, z=0.0)   # 0.01 above, margin is 0.05
         assert _index_extended(lms) is False
 
     def test_exactly_at_margin_boundary(self):
         """Exactly at the margin = NOT extended (strict less-than)."""
         lms = _lms21()
         lms[6] = SimpleNamespace(x=0.5, y=0.50, z=0.0)
-        lms[8] = SimpleNamespace(x=0.5, y=0.46, z=0.0)   # 0.04 above = boundary
+        lms[8] = SimpleNamespace(x=0.5, y=0.45, z=0.0)   # 0.05 above = boundary
         assert _index_extended(lms) is False
 
     def test_custom_margin(self):
         lms = _lms21()
         lms[6] = SimpleNamespace(x=0.5, y=0.50, z=0.0)
         lms[8] = SimpleNamespace(x=0.5, y=0.43, z=0.0)   # 0.07 above
-        assert _index_extended(lms, margin=0.06) is True
-        assert _index_extended(lms, margin=0.08) is False
+        # margin is a ratio: 0.30 * 0.20 = 0.06, and 0.40 * 0.20 = 0.08
+        assert _index_extended(lms, margin=0.30) is True
+        assert _index_extended(lms, margin=0.40) is False
 
 
 # ── Gate 2: _thumb_raised ────────────────────────────────────────────────────
 
 class TestThumbRaised:
     def test_raised_returns_true(self):
+        """A straight thumb pointing up and clear of the index knuckle."""
         lms = _lms21()
-        lms[2] = SimpleNamespace(x=0.5, y=0.55, z=0.0)   # MCP
-        lms[4] = SimpleNamespace(x=0.5, y=0.30, z=0.0)   # tip clearly above
+        lms[5] = SimpleNamespace(x=0.5, y=0.55, z=0.0)   # index MCP
+        lms[2] = SimpleNamespace(x=0.5, y=0.55, z=0.0)   # thumb MCP
+        lms[3] = SimpleNamespace(x=0.5, y=0.45, z=0.0)   # thumb IP
+        lms[4] = SimpleNamespace(x=0.5, y=0.30, z=0.0)   # thumb tip
         assert _thumb_raised(lms) is True
+
+    def test_thumb_folded_into_a_fist_is_not_raised(self):
+        """The regression that made scroll impossible.
+
+        In a fist the thumb folds across the fingers, so its tip sits above its
+        own MCP -- which the old tip-vs-MCP test read as a raised thumb, and
+        which vetoed 89% of real scroll fists.
+        """
+        lms = _lms21()
+        lms[5] = SimpleNamespace(x=0.5, y=0.50, z=0.0)   # index MCP
+        lms[2] = SimpleNamespace(x=0.5, y=0.56, z=0.0)   # thumb MCP
+        lms[3] = SimpleNamespace(x=0.5, y=0.53, z=0.0)   # IP barely above MCP
+        lms[4] = SimpleNamespace(x=0.5, y=0.51, z=0.0)   # tip above MCP, bent
+        assert _thumb_raised(lms) is False
 
     def test_not_raised_returns_false(self):
         lms = _lms21()
@@ -144,15 +191,18 @@ class TestThumbRaised:
     def test_margin_prevents_hairline_trigger(self):
         lms = _lms21()
         lms[2] = SimpleNamespace(x=0.5, y=0.50, z=0.0)
+        lms[3] = SimpleNamespace(x=0.5, y=0.495, z=0.0)
         lms[4] = SimpleNamespace(x=0.5, y=0.49, z=0.0)
         assert _thumb_raised(lms) is False
 
-    def test_custom_margin(self):
+    def test_a_straight_thumb_still_inside_the_hand_is_not_raised(self):
+        """Straightness alone is not enough; it must clear the index knuckle."""
         lms = _lms21()
-        lms[2] = SimpleNamespace(x=0.5, y=0.50, z=0.0)
-        lms[4] = SimpleNamespace(x=0.5, y=0.43, z=0.0)
-        assert _thumb_raised(lms, margin=0.06) is True
-        assert _thumb_raised(lms, margin=0.08) is False
+        lms[5] = SimpleNamespace(x=0.5, y=0.30, z=0.0)   # index MCP high up
+        lms[2] = SimpleNamespace(x=0.5, y=0.55, z=0.0)
+        lms[3] = SimpleNamespace(x=0.5, y=0.45, z=0.0)
+        lms[4] = SimpleNamespace(x=0.5, y=0.35, z=0.0)   # straight but below MCP5
+        assert _thumb_raised(lms) is False
 
 
 # ── Gate 3: _strict_fist ─────────────────────────────────────────────────────
@@ -290,22 +340,23 @@ class TestInertialScrollModel:
         return f
 
     def test_no_scroll_below_sensitivity(self):
-        f = self._scrolling_fsm(sens=0.02, cd=0.0)
-        # Move hand only 0.005 — below threshold
+        f = self._scrolling_fsm(sens=0.05, cd=0.0)
+        # 0.005 of raw travel over a 0.15 hand is 0.033 hand-widths, under the
+        # 0.05 threshold.
         f.update(scroll_lms(0.500))
-        f.update(scroll_lms(0.495))   # delta = 0.005 < 0.02
+        f.update(scroll_lms(0.495))
         assert f.scroll_delta == 0
 
     def test_slow_movement_produces_small_output(self):
         """Slow wrist movement → low velocity → few clicks."""
-        f = self._scrolling_fsm(sens=0.008, step=2, exp=1.6, cd=0.0)
+        f = self._scrolling_fsm(sens=0.05, step=2, exp=1.6, cd=0.0)
         f.update(scroll_lms(0.500))
         f.update(scroll_lms(0.490))   # delta = 0.010 — just above threshold
         slow_clicks = abs(f.scroll_delta)
         assert slow_clicks > 0
 
         # Fast: delta = 0.050 — should produce more clicks
-        f2 = self._scrolling_fsm(sens=0.008, step=2, exp=1.6, cd=0.0)
+        f2 = self._scrolling_fsm(sens=0.05, step=2, exp=1.6, cd=0.0)
         f2.update(scroll_lms(0.500))
         f2.update(scroll_lms(0.450))
         fast_clicks = abs(f2.scroll_delta)
@@ -316,26 +367,26 @@ class TestInertialScrollModel:
 
     def test_direction_up(self):
         """Hand moves UP (wrist Y decreases) → positive delta."""
-        f = self._scrolling_fsm(sens=0.008, step=2, cd=0.0)
+        f = self._scrolling_fsm(sens=0.05, step=2, cd=0.0)
         f.update(scroll_lms(0.500))   # anchor
         f.update(scroll_lms(0.440))   # wrist moved up
         assert f.scroll_delta > 0
 
     def test_direction_down(self):
         """Hand moves DOWN (wrist Y increases) → negative delta."""
-        f = self._scrolling_fsm(sens=0.008, step=2, cd=0.0)
+        f = self._scrolling_fsm(sens=0.05, step=2, cd=0.0)
         f.update(scroll_lms(0.500))   # anchor
         f.update(scroll_lms(0.560))   # wrist moved down
         assert f.scroll_delta < 0
 
     def test_exponent_amplifies_fast_movement(self):
         """Exponent > 1.0 means doubling velocity > doubles output."""
-        f_slow = self._scrolling_fsm(sens=0.008, step=1, exp=2.0, cd=0.0)
+        f_slow = self._scrolling_fsm(sens=0.05, step=1, exp=2.0, cd=0.0)
         f_slow.update(scroll_lms(0.500))
         f_slow.update(scroll_lms(0.490))   # delta 0.010
         clicks_slow = abs(f_slow.scroll_delta)
 
-        f_fast = self._scrolling_fsm(sens=0.008, step=1, exp=2.0, cd=0.0)
+        f_fast = self._scrolling_fsm(sens=0.05, step=1, exp=2.0, cd=0.0)
         f_fast.update(scroll_lms(0.500))
         f_fast.update(scroll_lms(0.460))   # delta 0.040 (4× slower)
         clicks_fast = abs(f_fast.scroll_delta)
@@ -345,12 +396,12 @@ class TestInertialScrollModel:
 
     def test_linear_exponent_is_proportional(self):
         """exp=1.0 makes the model behave proportionally (linear)."""
-        f1 = self._scrolling_fsm(sens=0.010, step=1, exp=1.0, cd=0.0)
+        f1 = self._scrolling_fsm(sens=0.0667, step=1, exp=1.0, cd=0.0)
         f1.update(scroll_lms(0.500))
         f1.update(scroll_lms(0.480))   # delta = 0.020 = 2× sensitivity
         c1 = abs(f1.scroll_delta)
 
-        f2 = self._scrolling_fsm(sens=0.010, step=1, exp=1.0, cd=0.0)
+        f2 = self._scrolling_fsm(sens=0.0667, step=1, exp=1.0, cd=0.0)
         f2.update(scroll_lms(0.500))
         f2.update(scroll_lms(0.460))   # delta = 0.040 = 4× sensitivity
         c2 = abs(f2.scroll_delta)
@@ -359,7 +410,7 @@ class TestInertialScrollModel:
         assert c2 >= c1 * 1.5
 
     def test_cooldown_prevents_rapid_fire(self):
-        f = self._scrolling_fsm(sens=0.008, cd=10.0)
+        f = self._scrolling_fsm(sens=0.05, cd=10.0)
         f.update(scroll_lms(0.500))
         f.update(scroll_lms(0.440))   # first event
         first = f.scroll_delta
@@ -369,7 +420,7 @@ class TestInertialScrollModel:
 
     def test_rolling_anchor_prevents_drift(self):
         """After each event the anchor resets — no drift accumulation."""
-        f = self._scrolling_fsm(sens=0.008, cd=0.0)
+        f = self._scrolling_fsm(sens=0.05, cd=0.0)
         y = 0.500
         deltas = []
         for _ in range(20):

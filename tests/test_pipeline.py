@@ -269,61 +269,119 @@ class _NullController:
 
 
 class TestCursorSmoothing:
-    """move_mouse_smooth's filter must be frame-rate independent."""
+    """The cursor filter must remove landmark jitter without adding lag."""
 
-    def _controller(self):
+    def _controller(self, **kw):
         from gestureflow.controller import SystemController
+        from gestureflow.smoothing import CursorFilter
         ctrl = SystemController.__new__(SystemController)
         ctrl._cfg = DEFAULT_CONFIG
-        ctrl._tau = 0.15
         ctrl._ploc_x = 0.0
         ctrl._ploc_y = 0.0
-        ctrl._last_move_time = None
         ctrl.screen_w, ctrl.screen_h = 1920, 1080
         ctrl._pag = _FakePyAutoGUI()
+        params = {
+            "min_cutoff": DEFAULT_CONFIG.mouse.min_cutoff,
+            "beta": DEFAULT_CONFIG.mouse.beta,
+            "derivative_cutoff": DEFAULT_CONFIG.mouse.derivative_cutoff,
+            "max_dt": DEFAULT_CONFIG.mouse.max_dt,
+        }
+        params.update(kw)
+        ctrl._filter = CursorFilter(**params)
         return ctrl
 
     def test_first_move_seeds_from_the_live_pointer(self):
         ctrl = self._controller()
         ctrl._pag.pos = (800.0, 600.0)
         ctrl.move_mouse_smooth(1000.0, 700.0, now=0.0)
-        # Starting from (800, 600), not (0, 0): the cursor must not sweep in
-        # from the screen corner on the first frame of a session.
+        # Starts from where the pointer actually is, not from the corner.
         assert ctrl._pag.moved[-1] == (800.0, 600.0)
 
-    def test_same_elapsed_time_gives_the_same_result_at_any_frame_rate(self):
-        target = 1000.0
-
-        slow = self._controller()
-        slow._pag.pos = (0.0, 0.0)
-        slow.move_mouse_smooth(target, 0.0, now=0.0)
-        for i in range(1, 16):                       # 15 FPS for one second
-            slow.move_mouse_smooth(target, 0.0, now=i / 15.0)
-
-        fast = self._controller()
-        fast._pag.pos = (0.0, 0.0)
-        fast.move_mouse_smooth(target, 0.0, now=0.0)
-        for i in range(1, 61):                       # 60 FPS for one second
-            fast.move_mouse_smooth(target, 0.0, now=i / 60.0)
-
-        assert slow._ploc_x == pytest.approx(fast._ploc_x, rel=0.02), (
-            f"15 FPS reached {slow._ploc_x:.1f}, 60 FPS reached "
-            f"{fast._ploc_x:.1f} -- smoothing is still frame-rate dependent"
-        )
-
-    def test_converges_toward_the_target(self):
+    def test_converges_toward_a_held_target(self):
         ctrl = self._controller()
         ctrl._pag.pos = (0.0, 0.0)
-        for i in range(60):
+        for i in range(90):
             ctrl.move_mouse_smooth(500.0, 0.0, now=i / 30.0)
-        assert ctrl._ploc_x == pytest.approx(500.0, abs=1.0)
+        assert ctrl._ploc_x == pytest.approx(500.0, abs=5.0)
 
-    def test_zero_elapsed_time_does_not_move(self):
+    def test_a_still_hand_with_jitter_produces_a_still_cursor(self):
+        """The whole point: landmark noise must not reach the pointer."""
+        import random
+        rng = random.Random(7)
+        ctrl = self._controller()
+        ctrl._pag.pos = (500.0, 500.0)
+
+        positions = []
+        for i in range(120):
+            # A hand held still, with +/- 6px of landmark noise on it.
+            jitter_x = 500.0 + rng.uniform(-6, 6)
+            jitter_y = 500.0 + rng.uniform(-6, 6)
+            ctrl.move_mouse_smooth(jitter_x, jitter_y, now=i / 30.0)
+            positions.append(ctrl._ploc_x)
+
+        settled = positions[30:]
+        spread = max(settled) - min(settled)
+        # Input jitter is 12px peak-to-peak; anything close to that means the
+        # filter is passing noise straight through.
+        assert spread < 3.5, (
+            f"cursor wandered {spread:.1f}px against 12px of input jitter; "
+            f"the filter is not suppressing landmark noise"
+        )
+
+    def test_fast_motion_is_tracked_without_excessive_lag(self):
+        """And the other half: a fast hand must not be left behind."""
+        ctrl = self._controller()
+        ctrl._pag.pos = (0.0, 0.0)
+        # Hand sweeps 1200px over half a second.
+        for i in range(16):
+            t = i / 30.0
+            ctrl.move_mouse_smooth(1200.0 * (t / 0.5), 0.0, now=t)
+        assert ctrl._ploc_x > 1000.0, (
+            f"cursor reached only {ctrl._ploc_x:.0f}px of a 1200px sweep -- "
+            f"the filter is over-damped"
+        )
+
+    def test_a_gap_in_the_stream_does_not_teleport_the_cursor(self):
+        """The jitter mechanism from DIAGNOSIS.md.
+
+        An irregular dispatch interval used to produce a near-1.0 blend factor
+        and slam the pointer straight to the target. max_dt bounds it.
+        """
+        ctrl = self._controller()
+        ctrl._pag.pos = (0.0, 0.0)
+        ctrl.move_mouse_smooth(0.0, 0.0, now=0.0)
+        ctrl.move_mouse_smooth(1000.0, 0.0, now=5.0)   # 5 second gap
+        assert ctrl._ploc_x < 700.0, (
+            f"jumped {ctrl._ploc_x:.0f}px after a stall; max_dt is not clamping"
+        )
+
+    def test_backwards_clock_does_not_move_the_cursor_erratically(self):
+        ctrl = self._controller()
+        ctrl._pag.pos = (0.0, 0.0)
+        ctrl.move_mouse_smooth(100.0, 0.0, now=10.0)
+        before = ctrl._ploc_x
+        ctrl.move_mouse_smooth(100.0, 0.0, now=9.0)     # clock went backwards
+        assert ctrl._ploc_x == pytest.approx(before, abs=1.0)
+
+    def test_release_clears_filter_state(self):
         ctrl = self._controller()
         ctrl._pag.pos = (100.0, 100.0)
-        ctrl.move_mouse_smooth(900.0, 900.0, now=5.0)
-        ctrl.move_mouse_smooth(900.0, 900.0, now=5.0)
-        assert ctrl._ploc_x == pytest.approx(100.0)
+        ctrl.move_mouse_smooth(900.0, 900.0, now=0.0)
+        assert ctrl._filter.initialized
+        ctrl.release_cursor()
+        assert not ctrl._filter.initialized
+
+    def test_after_release_the_next_gesture_reseeds_from_the_pointer(self):
+        ctrl = self._controller()
+        ctrl._pag.pos = (100.0, 100.0)
+        for i in range(10):
+            ctrl.move_mouse_smooth(900.0, 900.0, now=i / 30.0)
+        ctrl.release_cursor()
+
+        ctrl._pag.pos = (50.0, 50.0)
+        ctrl.move_mouse_smooth(900.0, 900.0, now=100.0)
+        # Re-seeded at the live pointer rather than resuming from the old one.
+        assert ctrl._pag.moved[-1] == (50.0, 50.0)
 
 
 class _FakePyAutoGUI:

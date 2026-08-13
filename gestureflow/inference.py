@@ -20,7 +20,13 @@ from gestureflow.metrics import (
     MetricsRecorder,
     NullMetrics,
 )
-from gestureflow.scroll_fsm import ScrollFSM, ScrollState, _index_extended, _thumb_raised
+from gestureflow.scroll_fsm import (
+    ScrollFSM,
+    ScrollState,
+    _index_extended,
+    _is_true_scroll_fist,
+    _thumb_raised,
+)
 from gestureflow.utils import drop_oldest_put, normalize_landmarks
 
 
@@ -164,8 +170,16 @@ class InferenceThread(threading.Thread):
                 self._right_fsm.update(None)
                 self._scroll_fsm.update(None)
             else:
-                self._left_fsm.update(lm)
-                self._right_fsm.update(lm)
+                # A fist resolves to scroll and nothing else. In a closed hand
+                # the middle and index fingertips sit side by side, which the
+                # right-click pinch reads as a deliberate touch -- measured on
+                # 22% of real fist frames, enough to latch the FSM. Deciding
+                # this once, here, means the two interpretations can never
+                # race: scroll wins by construction rather than by threshold
+                # tuning.
+                fist = _is_true_scroll_fist(lm)
+                self._left_fsm.update(None if fist else lm)
+                self._right_fsm.update(None if fist else lm)
                 self._scroll_fsm.update(lm)
 
 

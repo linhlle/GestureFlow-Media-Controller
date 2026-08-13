@@ -228,6 +228,7 @@ class GestureRouter:
         self._prev_wrist_y = 0.0
         self._last_vol_update = -float("inf")
         self._volume = 50
+        self._cursor_was_active = False
 
     def set_volume_reference(self, volume: int) -> None:
         self._volume = volume
@@ -255,6 +256,13 @@ class GestureRouter:
         move = self._route_cursor(result)
         if move is not None:
             out.append(act.MoveCursor(move[0], move[1], captured_at))
+            self._cursor_was_active = True
+        elif self._cursor_was_active:
+            # Cursor mode just disengaged. Tell the filter, so it does not
+            # smooth the next pointing gesture against a position and a
+            # timestamp from before the gap.
+            self._cursor_was_active = False
+            out.append(act.ReleaseCursor())
 
         return out
 
@@ -286,9 +294,11 @@ class GestureRouter:
             return False
         if result.scroll_active:
             return False
-        if result.thumb_raised:
-            # Thumb up means the user is reaching for volume, not pointing.
-            return False
+        # Deliberately no thumb check here. The original code had none, and
+        # adding one made cursor mode depend on _thumb_raised, which fired on
+        # 79% of Neutral frames -- so the cursor was disabled roughly three
+        # frames in four. Exclusivity against volume mode does not need it:
+        # volume requires the index finger *down*, and this requires it up.
         return result.index_extended
 
     def scroll_enabled(self, result: InferenceResult) -> bool:
@@ -343,7 +353,10 @@ class GestureRouter:
         iy = int(index_tip.y * h)
 
         x_target = float(np.interp(ix, (margin, w - margin), (0, self.screen_w)))
-        y_target = float(np.interp(iy, (margin, h - margin), (0, self.screen_h)))
+        # The extra 50 keeps the very bottom of the screen reachable without
+        # the user having to push their hand out of the camera's view.
+        y_target = float(np.interp(iy, (margin, h - margin),
+                                   (0, self.screen_h + 50)))
         return x_target, y_target
 
 

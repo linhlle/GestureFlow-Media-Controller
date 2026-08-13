@@ -18,17 +18,19 @@ export const DEFAULTS = {
   voteWindowSize: 10,
   voteThreshold: 7,
   cmdCooldown: 1.3,
-  click: { close: 0.045, open: 0.065, minHoldFrames: 4, cooldown: 0.4 },
-  rightClick: { close: 0.045, open: 0.065, minHoldFrames: 5, cooldown: 0.6 },
+  // Thresholds are fractions of hand scale, not absolute image distances --
+  // see handScale() below and DIAGNOSIS.md.
+  click: { close: 0.28, open: 0.41, minHoldFrames: 4, cooldown: 0.4 },
+  rightClick: { close: 0.22, open: 0.38, minHoldFrames: 5, cooldown: 0.6 },
   scroll: {
-    sensitivity: 0.008, minHoldFrames: 5, cooldown: 0.05,
+    sensitivity: 0.05, minHoldFrames: 5, cooldown: 0.05,
     step: 2, velocityExponent: 1.6,
   },
 };
 
 // Landmark indices (MediaPipe hand model).
 export const LM = {
-  WRIST: 0, THUMB_MCP: 2, THUMB_TIP: 4,
+  WRIST: 0, THUMB_MCP: 2, THUMB_IP: 3, THUMB_TIP: 4,
   INDEX_MCP: 5, INDEX_PIP: 6, INDEX_TIP: 8,
   MIDDLE_MCP: 9, MIDDLE_TIP: 12,
   RING_MCP: 13, RING_TIP: 16,
@@ -72,12 +74,45 @@ export function pinchDistance(landmarks, a, b) {
   return Math.sqrt((p.x - q.x) ** 2 + (p.y - q.y) ** 2 + (p.z - q.z) ** 2);
 }
 
-export function indexExtended(landmarks, margin = 0.04) {
-  return landmarks[LM.INDEX_TIP].y < landmarks[LM.INDEX_PIP].y - margin;
+const MIN_HAND_SCALE = 1e-6;
+
+/**
+ * Wrist to middle-finger MCP: the reference length every threshold is measured
+ * against. It spans the rigid palm, so unlike a fingertip span it does not
+ * change as the hand opens, closes, or points.
+ */
+export function handScale(landmarks) {
+  const a = landmarks[LM.WRIST];
+  const b = landmarks[LM.MIDDLE_MCP];
+  const d = Math.sqrt(
+    (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2,
+  );
+  return d > MIN_HAND_SCALE ? d : MIN_HAND_SCALE;
 }
 
-export function thumbRaised(landmarks, margin = 0.04) {
-  return landmarks[LM.THUMB_TIP].y < landmarks[LM.THUMB_MCP].y - margin;
+export function indexExtended(landmarks, margin = 0.25) {
+  return landmarks[LM.INDEX_TIP].y
+       < landmarks[LM.INDEX_PIP].y - margin * handScale(landmarks);
+}
+
+/**
+ * A straight thumb pointing up and clear of the hand.
+ *
+ * Comparing the tip against its own MCP alone is true for almost any posture,
+ * including a fist, where the thumb folds across the fingers. Requiring the
+ * thumb to be straight and clear of the index knuckle distinguishes a real
+ * thumbs-up from a thumb tucked into a fist.
+ */
+export function thumbRaised(landmarks, margin = 0.25) {
+  const scale = handScale(landmarks);
+  const tip = landmarks[LM.THUMB_TIP];
+  const ip = landmarks[LM.THUMB_IP];
+  const mcp = landmarks[LM.THUMB_MCP];
+
+  const straight = tip.y < ip.y - margin * 0.5 * scale
+                && ip.y < mcp.y - margin * 0.3 * scale;
+  const clearOfHand = tip.y < landmarks[LM.INDEX_MCP].y - margin * scale;
+  return straight && clearOfHand;
 }
 
 const CURL_PAIRS = [
@@ -87,10 +122,11 @@ const CURL_PAIRS = [
   [LM.PINKY_TIP, LM.PINKY_MCP],
 ];
 
-export function strictFist(landmarks, threshold = 0.03) {
+export function strictFist(landmarks, threshold = 0.19) {
+  const limit = threshold * handScale(landmarks);
   let curled = 0;
   for (const [tip, knuckle] of CURL_PAIRS) {
-    if (landmarks[tip].y > landmarks[knuckle].y + threshold) curled += 1;
+    if (landmarks[tip].y > landmarks[knuckle].y + limit) curled += 1;
   }
   return curled === 4;
 }
@@ -127,7 +163,13 @@ export class ClickFSM {
       this.reset();
       return;
     }
-    this.transition(pinchDistance(landmarks, this.lmA, this.lmB), now);
+    // In hand-widths, not image units: a hand further from the camera
+    // produces smaller raw distances, so an absolute threshold silently gets
+    // easier to cross as the user leans back.
+    this.transition(
+      pinchDistance(landmarks, this.lmA, this.lmB) / handScale(landmarks),
+      now,
+    );
   }
 
   transition(dist, now) {
@@ -210,10 +252,18 @@ export class ScrollFSM {
       this.reset();
       return;
     }
-    this.transition(isTrueScrollFist(landmarks), landmarks[LM.WRIST].y, now);
+    // Wrist position stays raw; the velocity derived from it is what gets
+    // scaled, in transition(). Dividing the position by hand scale would
+    // couple the two, since hand scale is itself measured from the wrist.
+    this.transition(
+      isTrueScrollFist(landmarks),
+      landmarks[LM.WRIST].y,
+      now,
+      handScale(landmarks),
+    );
   }
 
-  transition(fist, wristY, now) {
+  transition(fist, wristY, now, scale = 1.0) {
     const cfg = this.cfg;
     if (this.state === ScrollState.IDLE) {
       if (fist) {
@@ -240,7 +290,9 @@ export class ScrollFSM {
         this.prevWristY = wristY;
         return;
       }
-      const velocity = this.prevWristY - wristY;
+      // Hand-widths per frame, so the same physical movement scrolls the
+      // same amount at any distance from the camera.
+      const velocity = (this.prevWristY - wristY) / scale;
       this.prevWristY = wristY;
       if (Math.abs(velocity) > cfg.sensitivity) {
         const clicks = velocityToClicks(velocity, cfg);
@@ -357,8 +409,12 @@ export class Recognizer {
       this.rightFSM.update(null, now);
       this.scrollFSM.update(null, now);
     } else {
-      this.leftFSM.update(landmarks, now);
-      this.rightFSM.update(landmarks, now);
+      // A fist resolves to scroll and nothing else. In a closed hand the
+      // middle and index fingertips sit side by side, which the right-click
+      // pinch would otherwise read as a deliberate touch.
+      const fist = isTrueScrollFist(landmarks);
+      this.leftFSM.update(fist ? null : landmarks, now);
+      this.rightFSM.update(fist ? null : landmarks, now);
       this.scrollFSM.update(landmarks, now);
     }
 
@@ -370,8 +426,10 @@ export class Recognizer {
     const suppressed = stable !== 0 || action !== null;
 
     const scrollActive = !suppressed && this.scrollFSM.isActive;
+    // No thumb gate here, matching GestureRouter.cursor_enabled: exclusivity
+    // against volume comes from the index-up / index-down split instead.
     const cursorActive = !suppressed && !this.leftFSM.isActive
-      && !this.rightFSM.isActive && !scrollActive && !thumbUp && idxExt;
+      && !this.rightFSM.isActive && !scrollActive && idxExt;
     const volumeActive = !suppressed && !scrollActive && !idxExt && thumbUp
       && landmarks[LM.THUMB_TIP].y < landmarks[LM.INDEX_MCP].y;
 

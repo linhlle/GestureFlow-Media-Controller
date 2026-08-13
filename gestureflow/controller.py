@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import math
 import queue
 import subprocess
 import threading
 import time
-from typing import Optional
 
 from gestureflow.commands import Action, CommandSet, load_commands
 from gestureflow.config import DEFAULT_CONFIG, AppConfig
+from gestureflow.smoothing import CursorFilter
 from gestureflow.utils import drop_oldest_put
 
 
@@ -54,8 +53,12 @@ class SystemController:
 
         self._ploc_x: float = 0.0
         self._ploc_y: float = 0.0
-        self._last_move_time: Optional[float] = None
-        self._tau: float = self._cfg.mouse.smoothing_tau
+        self._filter = CursorFilter(
+            min_cutoff=self._cfg.mouse.min_cutoff,
+            beta=self._cfg.mouse.beta,
+            derivative_cutoff=self._cfg.mouse.derivative_cutoff,
+            max_dt=self._cfg.mouse.max_dt,
+        )
 
 
     # ------------------------------------------------------------------
@@ -199,35 +202,42 @@ class SystemController:
         target_y: float,
         now: float | None = None,
     ) -> None:
-        """Move the cursor toward a target with frame-rate-independent smoothing.
+        """Move the cursor toward a target, filtered for hand jitter.
 
-        The old form applied a fixed 1/smooth_factor step per *frame*, so the
-        cursor felt sluggish at 15 FPS and twitchy at 60 -- the same config
-        produced a different feel on every machine.  This uses an exponential
-        filter over elapsed *time* instead: alpha = 1 - exp(-dt / tau).  The
-        cursor now covers the same fraction of the remaining distance per
-        second regardless of how many frames that second contained.
+        `now` should be the timestamp of the frame the target came from, not
+        the moment of dispatch. The filter needs the interval over which the
+        hand actually moved; using dispatch time instead makes dt depend on how
+        long the action thread took to get here, which is unrelated to the
+        motion being filtered.
         """
         now = time.monotonic() if now is None else now
 
-        if self._last_move_time is None:
-            # First move of the session: adopt the cursor's real position so we
-            # filter from where the pointer actually is.  Seeding from (0, 0)
-            # made the very first movement sweep in from the screen corner.
-            self._ploc_x, self._ploc_y = self._current_pointer()
-            dt = 0.0
-        else:
-            dt = max(0.0, now - self._last_move_time)
-        self._last_move_time = now
+        if self._filter.is_stale(now):
+            # Tracking was lost for longer than any real frame interval.
+            # Filtering the new target against the pre-gap position would take
+            # one huge step; starting fresh glides there over the next few
+            # frames instead.
+            self._filter.reset()
 
-        alpha = 1.0 if self._tau <= 0.0 else 1.0 - math.exp(-dt / self._tau)
-        alpha = min(1.0, max(0.0, alpha))
+        if not self._filter.initialized:
+            # Seed at the pointer's real position so the first movement of a
+            # session does not sweep in from wherever the filter started.
+            px, py = self._current_pointer()
+            self._filter.reset(px, py)
 
-        cloc_x = self._ploc_x + (target_x - self._ploc_x) * alpha
-        cloc_y = self._ploc_y + (target_y - self._ploc_y) * alpha
-        self._pag.moveTo(cloc_x, cloc_y, _pause=False)
-        self._ploc_x = cloc_x
-        self._ploc_y = cloc_y
+        x, y = self._filter(target_x, target_y, now)
+        self._pag.moveTo(x, y, _pause=False)
+        self._ploc_x, self._ploc_y = x, y
+
+    def release_cursor(self) -> None:
+        """Called when cursor mode disengages.
+
+        Without this the filter would carry a stale position and a stale
+        timestamp across the gap, so the first frame after the user stopped
+        pointing would be filtered against wherever the pointer was seconds
+        ago.
+        """
+        self._filter.reset()
 
     def _current_pointer(self) -> tuple[float, float]:
         try:

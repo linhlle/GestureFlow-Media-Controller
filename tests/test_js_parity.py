@@ -48,7 +48,15 @@ def lm(rows):
 
 
 def pinch_rows(distance: float):
-    rows = [[float(i), float(i), 0.0] for i in range(21)]
+    """A hand of realistic scale (0.20) with the pinch pair `distance` apart.
+
+    Scale matters now that thresholds are ratios of it: a fixture with an
+    absurd hand scale would make every pinch read as closed in both languages,
+    so the parity test would pass without exercising the thresholds at all.
+    """
+    rows = [[float(i) * 0.01, float(i) * 0.01, 0.0] for i in range(21)]
+    rows[0] = [0.5, 0.75, 0.0]     # wrist
+    rows[9] = [0.5, 0.55, 0.0]     # middle MCP -> hand_scale 0.20
     rows[4] = [0.5, 0.5, 0.0]
     rows[8] = [0.5 + distance, 0.5, 0.0]
     return rows
@@ -119,12 +127,19 @@ def parity(tmp_path_factory):
           for _ in range(8)],
     ]
 
+    # At hand_scale 0.20 the close threshold is 0.056 and open is 0.082.
+    # Full landmark rows are sent, not bare distances, so both sides filter the
+    # exact same hand -- see the note in parity_check.mjs.
+    _click_distance_runs = [
+        [0.2, 0.01, 0.01, 0.01, 0.01, 0.2, 0.2],           # a clean click
+        [0.01] * 20,                                        # held, never clicks
+        [0.01, 0.01, 0.07, 0.07, 0.01, 0.2],                # inside the dead band
+        [0.2, 0.02, 0.2, 0.02, 0.2, 0.02, 0.2],             # chatter
+        list(rng.uniform(0.0, 0.12, size=40).round(6)),      # adversarial sweep
+    ]
     click_sequences = [
-        [0.5, 0.01, 0.01, 0.01, 0.01, 0.9, 0.9],          # a clean click
-        [0.01] * 20,                                       # held, never clicks
-        [0.01, 0.01, 0.055, 0.055, 0.01, 0.9],             # hysteresis band
-        [0.9, 0.02, 0.9, 0.02, 0.9, 0.02, 0.9],            # chatter
-        list(rng.uniform(0.0, 0.2, size=40).round(6)),      # adversarial
+        [[pinch_rows(float(d)), i / 30.0] for i, d in enumerate(run)]
+        for run in _click_distance_runs
     ]
 
     scroll_sequences = [
@@ -211,10 +226,11 @@ class TestClickFSMParity:
     def test_state_and_click_edges_match(self, parity):
         fixtures, js = parity
         for s, sequence in enumerate(fixtures["clickSequences"]):
-            fsm = ClickFSM(DEFAULT_CONFIG.click, clock=_SeqClock())
-            for i, dist in enumerate(sequence):
-                fsm._clock.now = i / 30.0
-                fsm.update(lm(pinch_rows(dist)))
+            clock = _SeqClock()
+            fsm = ClickFSM(DEFAULT_CONFIG.click, clock=clock)
+            for i, (rows, t) in enumerate(sequence):
+                clock.now = t
+                fsm.update(lm(rows))
                 got = js["clickSequences"][s][i]
                 assert got["state"] == fsm.state.name, (
                     f"sequence {s} frame {i}: state {got['state']} vs "

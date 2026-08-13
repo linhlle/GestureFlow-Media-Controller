@@ -37,7 +37,7 @@ class TestMonotonicEpoch:
     """
 
     def test_click_can_fire_immediately_after_construction(self):
-        fsm = ClickFSM(ClickConfig(close_threshold=0.05, open_threshold=0.06,
+        fsm = ClickFSM(ClickConfig(close_threshold=0.28, open_threshold=0.41,
                                    min_hold_frames=1, cooldown=1.3))
         fsm.update(_pinch(0.01))          # IDLE -> PRESSING
         fsm.update(_pinch(0.01))          # PRESSING -> HELD
@@ -61,7 +61,7 @@ class TestMonotonicEpoch:
         )
 
     def test_scroll_can_fire_immediately_after_construction(self):
-        fsm = _armed_scroll(ScrollConfig(sensitivity=0.008, min_hold_frames=2,
+        fsm = _armed_scroll(ScrollConfig(sensitivity=0.05, min_hold_frames=2,
                                          cooldown=10.0, step=2,
                                          velocity_exponent=1.6))
         fsm.update(_fist(0.50))
@@ -174,8 +174,13 @@ class TestBindingValidation:
 # ---------------------------------------------------------------------------
 
 def _pinch(distance: float):
-    """21 landmarks where thumb(4) and index(8) sit `distance` apart."""
+    """21 landmarks where thumb(4) and index(8) sit `distance` apart.
+
+    Includes a real hand scale (0.20) because pinch thresholds are ratios of it.
+    """
     lms = [SimpleNamespace(x=0.5, y=0.5, z=0.0) for _ in range(21)]
+    lms[0] = SimpleNamespace(x=0.5, y=0.75, z=0.0)
+    lms[9] = SimpleNamespace(x=0.5, y=0.55, z=0.0)
     lms[4] = SimpleNamespace(x=0.5, y=0.5, z=0.0)
     lms[8] = SimpleNamespace(x=0.5 + distance, y=0.5, z=0.0)
     return lms
@@ -190,6 +195,7 @@ def _fist(wrist_y: float):
         lms[tip] = SimpleNamespace(x=0.5, y=0.45, z=0.0)
     lms[6] = SimpleNamespace(x=0.5, y=0.40, z=0.0)   # index not extended
     lms[2] = SimpleNamespace(x=0.5, y=0.40, z=0.0)   # thumb not raised
+    lms[3] = SimpleNamespace(x=0.5, y=0.42, z=0.0)
     lms[4] = SimpleNamespace(x=0.5, y=0.45, z=0.0)
     return lms
 

@@ -6,6 +6,7 @@ from enum import Enum, auto
 from typing import Any, Callable, Union
 
 from gestureflow.config import DEFAULT_CONFIG, ClickConfig, RightClickConfig
+from gestureflow.scroll_fsm import hand_scale
 
 PinchConfig = Union[ClickConfig, RightClickConfig]
 
@@ -44,7 +45,10 @@ class ClickFSM:
         if landmarks is None:
             self._reset()
             return
-        dist = _pinch_distance(landmarks, self._lm_a, self._lm_b)
+        # Measured in hand-widths, not image units: a hand further from the
+        # camera produces smaller raw distances, so an absolute threshold
+        # silently gets easier to cross as the user leans back.
+        dist = _pinch_distance(landmarks, self._lm_a, self._lm_b) / hand_scale(landmarks)
         self._transition(dist)
 
     @property
@@ -103,6 +107,7 @@ class ClickFSM:
 
 
 def _pinch_distance(landmarks: Any, lm_a: int, lm_b: int) -> float:
+    """Raw euclidean distance between two landmarks, in image units."""
     a = landmarks[lm_a]
     b = landmarks[lm_b]
     return math.sqrt(
