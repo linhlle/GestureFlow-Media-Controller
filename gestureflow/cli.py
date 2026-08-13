@@ -6,6 +6,7 @@
     python -m gestureflow replay take.jsonl   replay a take, print actions
     python -m gestureflow false-triggers ...  count actions over no-intent takes
     python -m gestureflow validate [config]   check a command config
+    python -m gestureflow selftest            check detectors, no camera needed
     python -m gestureflow bridge              serve the local web UI
 """
 
@@ -210,6 +211,97 @@ def cmd_validate(args) -> int:
     return 0
 
 
+def cmd_selftest(args) -> int:
+    """Check the geometric detectors against the recorded dataset.
+
+    No camera needed. This is the check that would have caught the thumb-raised
+    regression: it reports how often each predicate fires on real hands, and
+    fails if the scroll gate is being vetoed at a rate that makes the FSM's
+    consecutive-frame requirement impossible to satisfy.
+    """
+    from types import SimpleNamespace
+
+    from gestureflow.scroll_fsm import (
+        _index_extended,
+        _is_true_scroll_fist,
+        _strict_fist,
+        _thumb_raised,
+    )
+    from gestureflow.utils import data_path
+
+    try:
+        import pandas as pd
+    except ImportError:
+        print("[selftest] pandas is required: pip install -e '.[train]'")
+        return 1
+
+    csv = data_path("gesture_data.csv")
+    if not csv.exists():
+        print(f"[selftest] No dataset at {csv}")
+        return 1
+
+    df = pd.read_csv(csv)
+    scale = args.scale
+
+    def to_raw(row):
+        # The CSV holds normalized landmarks; re-inflate to raw image space so
+        # the predicates see the kind of values the live pipeline gives them.
+        v = row[:-1].to_numpy(dtype=float)
+        return [SimpleNamespace(x=0.5 + v[i * 3] * scale,
+                                y=0.6 + v[i * 3 + 1] * scale,
+                                z=v[i * 3 + 2] * scale) for i in range(21)]
+
+    names = ["Neutral", "L-Shape", "High-Five", "2-Finger"]
+    print(f"Geometric detectors over {len(df)} recorded frames "
+          f"(hand scale {scale}):\n")
+    print(f"{'pose':<11}{'n':>6}{'thumbRaised':>13}{'indexExt':>10}"
+          f"{'strictFist':>12}{'scrollFist':>12}")
+    print("-" * 64)
+
+    for label in sorted(df["label"].unique()):
+        sub = df[df["label"] == label]
+        counts = [0, 0, 0, 0]
+        for _, row in sub.iterrows():
+            lm = to_raw(row)
+            counts[0] += _thumb_raised(lm)
+            counts[1] += _index_extended(lm)
+            counts[2] += _strict_fist(lm)
+            counts[3] += _is_true_scroll_fist(lm)
+        n = len(sub)
+        name = names[int(label)] if int(label) < len(names) else str(label)
+        print(f"{name:<11}{n:>6}{counts[0] / n:>12.0%}{counts[1] / n:>10.0%}"
+              f"{counts[2] / n:>11.0%}{counts[3] / n:>11.0%}")
+
+    fists = [to_raw(r) for _, r in df.iterrows()
+             if _strict_fist(to_raw(r)) and not _index_extended(to_raw(r))]
+    print()
+    if not fists:
+        print("[selftest] No fist-like frames in the dataset; "
+              "cannot check the scroll gate.")
+        return 0
+
+    blocked = sum(_thumb_raised(lm) for lm in fists)
+    armed = sum(_is_true_scroll_fist(lm) for lm in fists)
+    rate = blocked / len(fists)
+    print(f"Scroll gate: {armed}/{len(fists)} genuine fists arm it; "
+          f"{blocked} vetoed by the thumb test ({rate:.0%})")
+
+    # The FSM needs min_hold_frames consecutive passes. A high per-frame veto
+    # rate compounds into never firing at all.
+    holds = DEFAULT_CONFIG.scroll.min_hold_frames
+    chance = (1.0 - rate) ** holds
+    print(f"Probability of {holds} consecutive passing frames: {chance:.4f}")
+
+    if chance < 0.5:
+        print("\n[selftest] FAIL: the scroll gate is vetoed too often for the "
+              "FSM to reach SCROLLING. This is the regression described in "
+              "DIAGNOSIS.md.")
+        return 1
+
+    print("\n[selftest] OK")
+    return 0
+
+
 def cmd_bridge(args) -> int:
     from gestureflow.bridge import serve
     return serve(host=args.host, port=args.port,
@@ -272,6 +364,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_val.add_argument("--model", type=Path, default=None,
                        help="also check bindings against this model's classes")
     p_val.set_defaults(func=cmd_validate)
+
+    p_self = sub.add_parser(
+        "selftest",
+        help="check the geometric detectors against the recorded dataset")
+    p_self.add_argument("--scale", type=float, default=0.30,
+                        help="hand extent in image coords to simulate")
+    p_self.set_defaults(func=cmd_selftest)
 
     p_bridge = sub.add_parser(
         "bridge", help="serve the web UI locally with live gesture state")

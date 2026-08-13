@@ -207,6 +207,34 @@ None regressed.
 
 ---
 
+## Confirmed after the fix
+
+Same measurement, same 941 frames, same method:
+
+| | before | after |
+| :--- | ---: | ---: |
+| `_thumb_raised` on Neutral | 79% | **5%** |
+| genuine scroll fists vetoed by the thumb gate | 89% | **0%** |
+| genuine scroll fists that arm the gate | 7 / 64 | **53 / 53** |
+| probability of 5 consecutive passing frames | ~1.6e-5 | **1.000** |
+| cursor mode enabled over a 40-frame pointing sweep | ~10 / 40 | **40 / 40** |
+| simulated 12 px landmark jitter reaching the pointer | 6.2 px | **2.6 px** |
+| distance covered in a 1200 px half-second sweep | 893 px | **1110 px** |
+
+The last two are the jitter/lag trade-off, and they moved in opposite
+directions from each other, which is the point: the old filter could only trade
+one for the other, and it was losing on both.
+
+`gestureflow selftest` reproduces the top four rows on demand with no camera,
+and exits non-zero if the scroll gate ever regresses to a veto rate that makes
+the FSM's consecutive-frame requirement unreachable.
+
+Note the 2-Finger pose still reads `thumb_raised` 93% of the time. That is
+correct — that pose genuinely extends the thumb — and it is harmless, because a
+classified command pose suppresses every geometric mode anyway.
+
+---
+
 ## Fixes applied
 
 1. **Hand-scale normalization.** `hand_scale(landmarks)` = distance from wrist

@@ -171,3 +171,25 @@ class TestErrorHandling:
         path.write_text("gestures: [")
         assert main(["validate", "--commands", str(path)]) == 1
         assert "INVALID" in capsys.readouterr().out
+
+
+class TestSelftest:
+    """The camera-free detector check."""
+
+    def test_passes_on_the_current_detectors(self, capsys):
+        assert main(["selftest"]) == 0
+        out = capsys.readouterr().out
+        assert "Scroll gate:" in out
+        assert "[selftest] OK" in out
+
+    def test_reports_the_scroll_gate_arming_rate(self, capsys):
+        main(["selftest"])
+        out = capsys.readouterr().out
+        # The regression made this 11%; it must not silently return.
+        assert "genuine fists arm it" in out
+
+    def test_holds_up_across_simulated_hand_distances(self, capsys):
+        for scale in ("0.20", "0.30", "0.40"):
+            assert main(["selftest", "--scale", scale]) == 0, (
+                f"detectors fail at simulated hand scale {scale}"
+            )
