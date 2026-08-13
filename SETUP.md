@@ -23,9 +23,11 @@ Verify:
 
 ```bash
 gestureflow validate
+gestureflow selftest
 ```
 
-Expect `OK:` followed by three bindings. If this fails, nothing below will work.
+Expect `OK:` followed by three bindings, then `[selftest] OK`. Neither needs a
+camera. If either fails, nothing below will work.
 
 ---
 
@@ -75,9 +77,11 @@ window** (not Ctrl-C in the terminal) to quit cleanly.
 
 Check each mode works:
 
-- Point your index finger up → the cursor should move
+- Point your index finger up (thumb tucked) → the cursor should track smoothly
 - Pinch thumb to index, hold about a fifth of a second, release → a click
-- Close your fist and move up and down → scrolling
+- Close your fist, hold it still for about a quarter second until the HUD reads
+  SCROLL, then move your whole hand up and down → scrolling. The HUD must never
+  read RIGHT CLICK while your fist is closed.
 - Thumb up, index down, move vertically → volume
 
 ---
@@ -246,6 +250,8 @@ a generalization estimate.
 | "Camera lost — reconnecting" | Another app has the camera. The website's demo counts. |
 | Black window, no video | Step 3 not done |
 | Cursor moves when you meant to scroll | Fist not fully closed; all four fingertips must sit below their knuckles |
+| Cursor stalls or hops instead of tracking | Run `gestureflow selftest`. If it fails, the geometric detectors have regressed — see DIAGNOSIS.md |
+| Fist triggers a right click | Run `gestureflow selftest`; this was a real bug, fixed by resolving a fist to scroll before the click FSMs see it |
 | Volume changes when you meant to point | Tuck your thumb; a raised thumb means volume mode |
 | Poses recognized unreliably | Retrain on your own hands (step 8) |
 | `gestureflow: command not found` | The venv is not active, or `pip install -e .` was not run |

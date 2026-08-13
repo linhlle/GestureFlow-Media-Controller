@@ -68,7 +68,7 @@ Verifiable facts, as opposed to measurements:
 | Feature vector | 63 floats (21 landmarks × xyz, wrist-relative, max-abs scaled) |
 | Model | `RandomForestClassifier`, 100 trees, classes `[0 1 2 3]`, 3,264 nodes |
 | Training data | 941 labelled frames (335 / 202 / 202 / 202) |
-| Tests | 340, all passing |
+| Tests | 388, all passing |
 | Pipeline threads | 6 (capture, inference, render, action, volume, volume-sync) |
 
 ---
@@ -101,6 +101,7 @@ gestureflow record out.jsonl --label no-intent
 gestureflow replay take.jsonl         replay a take, print the actions
 gestureflow false-triggers *.jsonl    count actions over no-intent footage
 gestureflow validate                  check a command config
+gestureflow selftest                  check the detectors, no camera needed
 gestureflow bridge                    serve the web UI locally with live state
 ```
 
@@ -123,8 +124,13 @@ Neutral, and at most one runs at a time.
 
 Clicks fire on the **release** edge of a held pinch, not the press. A hand
 passing through a pinch shape does not click, and holding does not auto-repeat.
-The gap between the close threshold (0.045) and the open threshold (0.065) is
-hysteresis — without it a hand hovering at the boundary chatters clicks.
+The gap between the close and open thresholds is hysteresis — without it a hand
+hovering at the boundary chatters clicks.
+
+Every geometric threshold is a fraction of your hand's own size (wrist to
+middle knuckle), not an absolute distance, so gestures behave the same near and
+far from the camera. A closed fist resolves to scroll and never to a click,
+decided once per frame rather than left to threshold tuning.
 
 ## Custom commands
 
@@ -205,7 +211,7 @@ edges, scroll deltas, debouncer votes, and forest probabilities.
 
 ```bash
 pip install -e ".[dev,train]"
-pytest                      # 340 tests
+pytest                      # 388 tests
 pytest -m "not slow"        # skip property-based and Node-subprocess tests
 ruff check gestureflow scripts tests
 ```
@@ -227,12 +233,14 @@ python scripts/export_model_json.py # refresh the browser demo's copy
 | `gestureflow/commands.py` | Config schema, validation, hot-reload |
 | `gestureflow/metrics.py` | Instrumentation |
 | `gestureflow/replay.py` | Record and replay |
+| `gestureflow/smoothing.py` | One Euro cursor filter |
 | `gestureflow/bridge.py` | Optional localhost server |
 | `web/` | The static website |
 | `scripts/` | Data collection, training, model export |
 | `configs/` | The default command bindings |
-| `tests/` | 340 tests |
+| `tests/` | 388 tests |
 | `PLAN.md` | Build plan and the web/desktop architecture decision |
+| `DIAGNOSIS.md` | Root-cause analysis of the cursor and scroll regressions |
 | `SETUP.md` | Every step that needs a human |
 
 ## License
