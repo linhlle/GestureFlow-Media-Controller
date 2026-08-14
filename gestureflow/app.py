@@ -50,6 +50,7 @@ from gestureflow.config import DEFAULT_CONFIG, AppConfig
 from gestureflow.controller import SystemController
 from gestureflow.inference import InferenceResult, InferenceThread
 from gestureflow.metrics import STAGE_RENDER, MetricsRecorder
+from gestureflow.modes import Mode
 from gestureflow.utils import BindingError, models_path, validate_bindings
 
 # ============================================================================
@@ -266,11 +267,7 @@ class GestureRouter:
 
         return out
 
-    # -- mode predicates ---------------------------------------------------
-    #
-    # These three are the mutual-exclusion contract.  Exactly one of
-    # cursor/scroll/volume may be enabled for any given frame; the property
-    # test in tests/test_properties.py asserts that over arbitrary landmarks.
+    # -- mode arbitration --------------------------------------------------
 
     @staticmethod
     def _geometric_modes_suppressed(result: InferenceResult) -> bool:
@@ -287,30 +284,43 @@ class GestureRouter:
             return True
         return result.stable_gesture != 0 or result.action is not None
 
-    def cursor_enabled(self, result: InferenceResult) -> bool:
+    def active_mode(self, result: InferenceResult) -> Mode:
+        """Decide what this frame means. Exactly one answer, always.
+
+        This is the mutual-exclusion contract, and it is a ladder rather than a
+        set of independent predicates on purpose.  With independent predicates
+        every new mode has to be taught to exclude every existing one, which is
+        quadratically many chances to get it wrong -- and getting it wrong is
+        how cursor mode ended up disabled on three frames in four.  Returning a
+        single value makes two modes being active simultaneously unrepresentable
+        rather than merely untested.
+
+        Order encodes intent: safety first, then explicit commands, then
+        whole-hand poses, then the fine-grained ones.
+        """
+        if result.capture.landmarks is None:
+            return Mode.NONE
+
         if self._geometric_modes_suppressed(result):
-            return False
+            return Mode.COMMAND
+
+        if result.scroll_active:
+            return Mode.SCROLL
+
         if result.fsm_active or result.right_fsm_active:
-            return False
-        if result.scroll_active:
-            return False
-        # Deliberately no thumb check here. The original code had none, and
-        # adding one made cursor mode depend on _thumb_raised, which fired on
-        # 79% of Neutral frames -- so the cursor was disabled roughly three
-        # frames in four. Exclusivity against volume mode does not need it:
-        # volume requires the index finger *down*, and this requires it up.
-        return result.index_extended
+            return Mode.CLICK
 
-    def scroll_enabled(self, result: InferenceResult) -> bool:
-        if self._geometric_modes_suppressed(result):
-            return False
-        return result.scroll_active
+        if self._volume_pose(result):
+            return Mode.VOLUME
 
-    def volume_enabled(self, result: InferenceResult) -> bool:
-        if self._geometric_modes_suppressed(result):
-            return False
-        if result.scroll_active:
-            return False
+        if result.index_extended:
+            return Mode.CURSOR
+
+        return Mode.TRACKING
+
+    @staticmethod
+    def _volume_pose(result: InferenceResult) -> bool:
+        """Thumb up and clear, index down."""
         if result.index_extended:
             # Index up means cursor mode; do not also grab the volume.
             return False
@@ -318,6 +328,18 @@ class GestureRouter:
             return False
         lm = result.capture.landmarks
         return lm[4].y < lm[5].y
+
+    # The three original predicates, now derived from the ladder so they cannot
+    # disagree with it or with each other.
+
+    def cursor_enabled(self, result: InferenceResult) -> bool:
+        return self.active_mode(result) is Mode.CURSOR
+
+    def scroll_enabled(self, result: InferenceResult) -> bool:
+        return self.active_mode(result) is Mode.SCROLL
+
+    def volume_enabled(self, result: InferenceResult) -> bool:
+        return self.active_mode(result) is Mode.VOLUME
 
     # -- routing helpers ---------------------------------------------------
 
