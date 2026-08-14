@@ -28,6 +28,7 @@ from gestureflow.scroll_fsm import (
     _is_true_scroll_fist,
     _thumb_raised,
 )
+from gestureflow.swipe_fsm import SwipeFSM
 from gestureflow.utils import drop_oldest_put, normalize_landmarks
 
 
@@ -58,6 +59,10 @@ class InferenceResult:
     scroll_state: ScrollState
     index_extended: bool
     thumb_raised: bool
+
+    # Swipe
+    swipe_direction: Optional[str] = None
+    swipe_armed: bool = False
 
     # Drag
     drag_started: bool = False
@@ -105,6 +110,7 @@ class InferenceThread(threading.Thread):
                                    clock=clock)
         self._scroll_fsm = ScrollFSM(config=cfg.scroll, clock=clock)
         self._pause_fsm = PauseFSM(config=cfg.pause, clock=clock)
+        self._swipe_fsm = SwipeFSM(config=cfg.swipe, clock=clock)
 
     def run(self) -> None:
         print("[inference] Starting inference loop.")
@@ -186,6 +192,7 @@ class InferenceThread(threading.Thread):
                 self._left_fsm.update(None)
                 self._right_fsm.update(None)
                 self._scroll_fsm.update(None)
+                self._swipe_fsm.update(None)
             else:
                 # A fist resolves to scroll and nothing else. In a closed hand
                 # the middle and index fingertips sit side by side, which the
@@ -198,6 +205,7 @@ class InferenceThread(threading.Thread):
                 self._left_fsm.update(None if fist else lm)
                 self._right_fsm.update(None if fist else lm)
                 self._scroll_fsm.update(lm)
+                self._swipe_fsm.update(lm)
 
 
         return InferenceResult(
@@ -220,6 +228,8 @@ class InferenceThread(threading.Thread):
             scroll_state=self._scroll_fsm.state,
             index_extended=_index_extended(lm),
             thumb_raised=_thumb_raised(lm),
+            swipe_direction=self._swipe_fsm.direction,
+            swipe_armed=self._swipe_fsm.is_armed,
             drag_started=self._left_fsm.drag_started,
             drag_ended=self._left_fsm.drag_ended,
             dragging=self._left_fsm.dragging,

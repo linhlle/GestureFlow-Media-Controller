@@ -106,9 +106,16 @@ class Command:
     captured_at: float = 0.0
 
 
+@dataclass(frozen=True)
+class NamedCommand:
+    """A geometric gesture bound by name rather than by model label."""
+    gesture: str = ""
+    captured_at: float = 0.0
+
+
 # Discrete events are never dropped; cursor moves are.
 DISCRETE_TYPES = (Click, MouseDown, MouseUp, Scroll, SetVolume,
-                  Command, ReleaseCursor)
+                  Command, NamedCommand, ReleaseCursor)
 
 
 class ActionDispatcher(threading.Thread):
@@ -239,6 +246,8 @@ class ActionDispatcher(threading.Thread):
             self._ctrl.set_volume(action.value)
         elif isinstance(action, Command):
             self._ctrl.execute_command(action.gesture_id)
+        elif isinstance(action, NamedCommand):
+            self._ctrl.execute_named(action.gesture)
         else:
             raise TypeError(f"unknown action type: {type(action).__name__}")
 

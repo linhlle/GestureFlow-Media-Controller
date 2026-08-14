@@ -293,6 +293,9 @@ class GestureRouter:
             out.append(act.Click("right", captured_at))
         if result.scroll_delta != 0:
             out.append(act.Scroll(result.scroll_delta, captured_at))
+        if result.swipe_direction is not None:
+            out.append(act.NamedCommand(f"swipe_{result.swipe_direction}",
+                                        captured_at))
 
         vol = self._route_volume(result, now)
         if vol is not None:
@@ -353,6 +356,9 @@ class GestureRouter:
 
         if result.scroll_active:
             return Mode.SCROLL
+
+        if result.swipe_armed:
+            return Mode.SWIPE
 
         if result.dragging:
             return Mode.DRAG

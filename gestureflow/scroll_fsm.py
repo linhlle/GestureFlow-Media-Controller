@@ -24,6 +24,7 @@ class ScrollFSM:
         self._state: ScrollState = ScrollState.IDLE
         self._hold_frames: int = 0
         self._prev_wrist_y: float = 0.0
+        self._prev_wrist_x: float = 0.0
         # See ClickFSM._last_click_time: monotonic()'s epoch is undefined.
         self._last_scroll_time: float = -math.inf
         self._scroll_delta: int = 0
@@ -39,7 +40,8 @@ class ScrollFSM:
         # is what gets scaled, in _transition. Dividing the position by hand
         # scale would couple the two, since hand scale is itself measured from
         # the wrist.
-        self._transition(fist, landmarks[0].y, hand_scale(landmarks))
+        self._transition(fist, landmarks[0].y, hand_scale(landmarks),
+                         landmarks[0].x)
 
     @property
     def scroll_delta(self) -> int:
@@ -56,13 +58,15 @@ class ScrollFSM:
     # ------------------------------------------------------------------
     # FSM transitions
     # ------------------------------------------------------------------
-    def _transition(self, fist: bool, wrist_y: float, scale: float = 1.0) -> None:
+    def _transition(self, fist: bool, wrist_y: float, scale: float = 1.0,
+                    wrist_x: float = 0.0) -> None:
         cfg = self._cfg
 
         if self._state is ScrollState.IDLE:
             if fist:
                 self._hold_frames = 1
                 self._prev_wrist_y = wrist_y
+                self._prev_wrist_x = wrist_x
                 self._state = ScrollState.FIST_DETECTED
 
         elif self._state is ScrollState.FIST_DETECTED:
@@ -70,6 +74,7 @@ class ScrollFSM:
                 self._hold_frames += 1
                 if self._hold_frames >= cfg.min_hold_frames:
                     self._prev_wrist_y = wrist_y
+                    self._prev_wrist_x = wrist_x
                     self._state = ScrollState.SCROLLING
             else:
                 self._reset()
@@ -82,13 +87,21 @@ class ScrollFSM:
             now = self._clock()
             if now - self._last_scroll_time < cfg.cooldown:
                 self._prev_wrist_y = wrist_y
+                self._prev_wrist_x = wrist_x
                 return
 
             # Measured in hand-widths per frame, so the same physical hand
             # movement scrolls the same amount whether the user is close to the
             # camera or far from it.
             velocity = (self._prev_wrist_y - wrist_y) / scale
+            horizontal = (wrist_x - self._prev_wrist_x) / scale
             self._prev_wrist_y = wrist_y
+            self._prev_wrist_x = wrist_x
+
+            # A mostly-sideways movement is a swipe, not a scroll. Without this
+            # a horizontal flick would scroll the page on its way past.
+            if abs(velocity) < cfg.axis_ratio * abs(horizontal):
+                return
 
             if abs(velocity) > cfg.sensitivity:
                 clicks = _velocity_to_clicks(velocity, cfg)
@@ -101,6 +114,7 @@ class ScrollFSM:
         self._state = ScrollState.IDLE
         self._hold_frames = 0
         self._prev_wrist_y = 0.0
+        self._prev_wrist_x = 0.0
 
 
 # Landmark coordinates arrive as float32-ish values, so a wrist that moved

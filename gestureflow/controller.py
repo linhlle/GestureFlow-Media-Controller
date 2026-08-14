@@ -109,6 +109,23 @@ class SystemController:
         else:
             print(f"[controller] Executed: {binding.name}")
 
+    def execute_named(self, gesture: str) -> None:
+        """Perform the action bound to a geometric gesture, if any.
+
+        Unbound is not an error: a user who does not want swipes simply leaves
+        them out of their config, and the detector firing into nothing is the
+        correct outcome.
+        """
+        binding = self._commands.get_named(gesture)
+        if binding is None:
+            return
+        try:
+            self.perform_action(binding.action)
+        except Exception as exc:
+            print(f"[controller] {binding.name} failed: {exc}")
+        else:
+            print(f"[controller] Executed: {binding.name}")
+
     def perform_action(self, action: Action) -> None:
         """Dispatch one validated action.
 

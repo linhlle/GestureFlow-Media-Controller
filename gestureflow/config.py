@@ -222,6 +222,12 @@ class ScrollConfig:
     velocity_exponent: float = field(
         default_factory=lambda: _env_float("SCROLL_EXPONENT", 1.6)
     )
+    # Vertical travel must at least tie horizontal for a motion to count as a
+    # scroll. Swipe reads the other side of the same rule, so one hand movement
+    # can never be both.
+    axis_ratio: float = field(
+        default_factory=lambda: _env_float("SCROLL_AXIS_RATIO", 1.0)
+    )
 
 
 
@@ -234,6 +240,36 @@ class ScrollConfig:
 class QueueConfig:
     inference_queue_size: int = 2
     action_queue_size: int = 1
+
+
+# ---------------------------------------------------------------------------
+# Swipe (horizontal flick on a held fist)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SwipeConfig:
+    enabled: bool = True
+    # Hand-widths of horizontal travel per frame before a flick counts.
+    # Comfortably above the drift of a hand trying to hold still.
+    sensitivity: float = field(
+        default_factory=lambda: _env_float("SWIPE_SENSITIVITY", 0.16)
+    )
+    min_hold_frames: int = field(
+        default_factory=lambda: _env_int("SWIPE_HOLD_FRAMES", 3)
+    )
+    cooldown: float = field(
+        default_factory=lambda: _env_float("SWIPE_COOLDOWN", 0.6)
+    )
+    # Horizontal must beat vertical by this factor. Above 1.0 on purpose: an
+    # ambiguous diagonal should fire nothing rather than guess.
+    axis_ratio: float = field(
+        default_factory=lambda: _env_float("SWIPE_AXIS_RATIO", 1.5)
+    )
+    # Speed must fall to this fraction of the threshold before the next swipe
+    # can start, so one flick is one fire rather than one per frame.
+    release_ratio: float = field(
+        default_factory=lambda: _env_float("SWIPE_RELEASE_RATIO", 0.5)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +320,7 @@ class AppConfig:
     drag: DragConfig = field(default_factory=DragConfig)
     right_click: RightClickConfig = field(default_factory=RightClickConfig)
     scroll: ScrollConfig = field(default_factory=ScrollConfig)
+    swipe: SwipeConfig = field(default_factory=SwipeConfig)
     hud: HudConfig = field(default_factory=HudConfig)
     pause: PauseConfig = field(default_factory=PauseConfig)
 

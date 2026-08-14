@@ -43,7 +43,14 @@ from typing import Any, Dict, List, Optional
 
 from gestureflow.utils import PROJECT_ROOT
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Gestures that are detected geometrically rather than classified by the model,
+# and so are bound by name instead of by model label.
+NAMED_GESTURES = frozenset({
+    "swipe_left", "swipe_right",
+    "zoom_in", "zoom_out",
+})
 
 DEFAULT_COMMANDS_PATH = PROJECT_ROOT / "configs" / "commands.default.yaml"
 USER_COMMANDS_PATH = Path.home() / ".gestureflow" / "commands.yaml"
@@ -125,19 +132,31 @@ class Action:
 
 @dataclass(frozen=True)
 class Binding:
-    label: int
+    """One gesture bound to one action.
+
+    Keyed either by model `label` (a classified pose) or by `gesture` name (a
+    geometric detector). Exactly one of the two, never both.
+    """
     name: str
     action: Action
+    label: Optional[int] = None
+    gesture: Optional[str] = None
     description: str = ""
 
+    @property
+    def key(self):
+        return self.label if self.label is not None else self.gesture
+
     def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
-            "label": self.label,
-            "name": self.name,
-            "action": self.action.to_dict(),
-        }
+        out: Dict[str, Any] = {}
+        if self.label is not None:
+            out["label"] = self.label
+        else:
+            out["gesture"] = self.gesture
+        out["name"] = self.name
         if self.description:
             out["description"] = self.description
+        out["action"] = self.action.to_dict()
         return out
 
 
@@ -146,6 +165,7 @@ class CommandSet:
     """An immutable-ish set of gesture bindings, keyed by model label."""
 
     bindings: Dict[int, Binding] = field(default_factory=dict)
+    named: Dict[str, Binding] = field(default_factory=dict)
     neutral_label: int = 0
     source: Optional[Path] = None
     version: int = SCHEMA_VERSION
@@ -163,12 +183,22 @@ class CommandSet:
     def labels(self) -> List[int]:
         return sorted(self.bindings)
 
+    def has_named(self, gesture: str) -> bool:
+        return gesture in self.named
+
+    def get_named(self, gesture: str) -> Optional[Binding]:
+        return self.named.get(gesture)
+
+    def gesture_names(self) -> List[str]:
+        return sorted(self.named)
+
     def to_dict(self) -> Dict[str, Any]:
+        entries = [self.bindings[label].to_dict() for label in self.labels()]
+        entries += [self.named[name].to_dict() for name in self.gesture_names()]
         return {
             "version": self.version,
             "neutral_label": self.neutral_label,
-            "gestures": [self.bindings[label].to_dict()
-                         for label in self.labels()],
+            "gestures": entries,
         }
 
     def to_yaml(self) -> str:
@@ -267,9 +297,12 @@ def parse_commands(raw: Any, source: Optional[Path] = None) -> CommandSet:
     version = raw.get("version", SCHEMA_VERSION)
     _require(isinstance(version, int),
              f"{where}: 'version' must be an integer")
-    _require(version == SCHEMA_VERSION,
+    # Version 1 configs stay loadable. They simply have no named-gesture
+    # bindings, which is exactly what an empty `named` map means -- so nothing
+    # in the loader has to branch on the version beyond accepting it.
+    _require(1 <= version <= SCHEMA_VERSION,
              f"{where}: config version {version} is not supported by this "
-             f"build (expected {SCHEMA_VERSION})")
+             f"build (this build understands 1..{SCHEMA_VERSION})")
 
     neutral = raw.get("neutral_label", 0)
     _require(isinstance(neutral, int) and neutral >= 0,
@@ -280,20 +313,21 @@ def parse_commands(raw: Any, source: Optional[Path] = None) -> CommandSet:
              f"{where}: 'gestures' must be a non-empty list")
 
     bindings: Dict[int, Binding] = {}
+    named: Dict[str, Binding] = {}
+
     for i, entry in enumerate(gestures):
         item = f"{where}: gestures[{i}]"
         _require(isinstance(entry, dict), f"{item} must be a mapping")
 
-        label = entry.get("label")
-        _require(isinstance(label, int) and not isinstance(label, bool),
-                 f"{item}: 'label' must be an integer")
-        _require(label >= 0, f"{item}: 'label' must be non-negative")
-        _require(label != neutral,
-                 f"{item}: label {label} is the neutral label, which is the "
-                 f"'no gesture' state and cannot have an action bound to it")
-        _require(label not in bindings,
-                 f"{item}: label {label} is already bound to "
-                 f"{bindings.get(label).name if label in bindings else ''!r}")
+        has_label = "label" in entry
+        has_gesture = "gesture" in entry
+        _require(has_label or has_gesture,
+                 f"{item}: needs either a 'label' (a pose the model predicts) "
+                 f"or a 'gesture' (a geometric gesture, one of "
+                 f"{', '.join(sorted(NAMED_GESTURES))})")
+        _require(not (has_label and has_gesture),
+                 f"{item}: has both 'label' and 'gesture'; a binding is keyed "
+                 f"by one or the other, not both")
 
         name = entry.get("name")
         _require(isinstance(name, str) and name.strip(),
@@ -305,11 +339,40 @@ def parse_commands(raw: Any, source: Optional[Path] = None) -> CommandSet:
                  f"{item}: 'description' must be a string")
 
         action = parse_action(entry.get("action"), f"{item} ({name})")
-        bindings[label] = Binding(label=label, name=name.strip(),
-                                  action=action,
+
+        if has_gesture:
+            gesture = entry.get("gesture")
+            _require(isinstance(gesture, str),
+                     f"{item}: 'gesture' must be a string")
+            _require(gesture in NAMED_GESTURES,
+                     f"{item}: unknown gesture {gesture!r}. Valid: "
+                     f"{', '.join(sorted(NAMED_GESTURES))}")
+            _require(version >= 2,
+                     f"{item}: named gestures need config version 2 or later; "
+                     f"this file declares version {version}")
+            _require(gesture not in named,
+                     f"{item}: gesture {gesture!r} is already bound to "
+                     f"{named[gesture].name!r}" if gesture in named else "")
+            named[gesture] = Binding(name=name.strip(), action=action,
+                                     gesture=gesture,
+                                     description=description.strip())
+            continue
+
+        label = entry.get("label")
+        _require(isinstance(label, int) and not isinstance(label, bool),
+                 f"{item}: 'label' must be an integer")
+        _require(label >= 0, f"{item}: 'label' must be non-negative")
+        _require(label != neutral,
+                 f"{item}: label {label} is the neutral label, which is the "
+                 f"'no gesture' state and cannot have an action bound to it")
+        _require(label not in bindings,
+                 f"{item}: label {label} is already bound to "
+                 f"{bindings[label].name!r}" if label in bindings else "")
+        bindings[label] = Binding(name=name.strip(), action=action,
+                                  label=label,
                                   description=description.strip())
 
-    return CommandSet(bindings=bindings, neutral_label=neutral,
+    return CommandSet(bindings=bindings, named=named, neutral_label=neutral,
                       source=source, version=version)
 
 

@@ -8,7 +8,17 @@
 // tests/test_web_parity.py asserts these constants match the Python ones, so
 // the two cannot silently diverge.
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+// Gestures detected geometrically rather than classified by the model, so they
+// are bound by name instead of by model label. Mirrors NAMED_GESTURES in
+// gestureflow/commands.py.
+export const NAMED_GESTURES = [
+  { id: 'swipe_left', label: 'Swipe left', note: 'closed fist, flick left' },
+  { id: 'swipe_right', label: 'Swipe right', note: 'closed fist, flick right' },
+  { id: 'zoom_in', label: 'Zoom in', note: 'thumb and index spread apart' },
+  { id: 'zoom_out', label: 'Zoom out', note: 'thumb and index drawn together' },
+];
 
 export const VALID_KEYS = new Set([
   'command', 'cmd', 'ctrl', 'control', 'alt', 'option', 'shift', 'fn',
