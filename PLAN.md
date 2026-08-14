@@ -50,10 +50,10 @@ commands, then whole-hand poses, then fine-grained ones.
 | 10 | `CURSOR` | index extended |
 | 11 | `TRACKING` | hand visible, nothing claimed it |
 
-Phase 0 ships with the ladder returning exactly today's answers — the five new
-modes are added later, each in its own phase. That is deliberate: it lets the
+Phase 0 shipped with the ladder returning exactly today's answers — the five new
+modes were added later, each in its own phase. That was deliberate: it let the
 existing 388 tests prove the refactor changed nothing before any new behaviour
-lands.
+landed. All eleven rungs are now implemented.
 
 ---
 
@@ -208,7 +208,7 @@ no `eval`, no arbitrary strings reaching a shell.
 
 ## Bigger features
 
-### A. Per-user calibration — **building this**
+### A. Per-user calibration — **built**
 
 Thresholds are already fractions of hand scale, which fixed *distance from
 camera*. What it did not fix is that people's hands differ: one person's closed
@@ -227,7 +227,7 @@ suit both.
   missing/corrupt file falls back silently to defaults; a calibrated config
   round-trips.
 
-### B. App-context profiles — **planned, built if Phase A lands clean**
+### B. App-context profiles — **built**
 
 - Schema gains `profiles:` with `match:` rules on the frontmost app's bundle id
   or name, each carrying its own `gestures:` list. A `default` profile is
@@ -244,7 +244,7 @@ suit both.
 
 **Why A first:** calibration fixes something already known to be wrong for
 anyone whose hands differ from the author's. Profiles add reach but nothing is
-broken without them.
+broken without them. A landed clean, so B was built too.
 
 ---
 
