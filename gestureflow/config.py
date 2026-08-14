@@ -357,6 +357,22 @@ class PauseConfig:
 
 
 # ---------------------------------------------------------------------------
+# App-context profiles
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ProfileConfig:
+    # Only worth polling if the config actually defines profiles; the app
+    # turns it on automatically when it finds some.
+    enabled: bool = field(
+        default_factory=lambda: _env_bool("PROFILES_ENABLED", True)
+    )
+    poll_seconds: float = field(
+        default_factory=lambda: _env_float("PROFILES_POLL_SECONDS", 1.0)
+    )
+
+
+# ---------------------------------------------------------------------------
 # HUD
 # ---------------------------------------------------------------------------
 
@@ -390,6 +406,7 @@ class AppConfig:
     zoom: ZoomConfig = field(default_factory=ZoomConfig)
     hud: HudConfig = field(default_factory=HudConfig)
     pause: PauseConfig = field(default_factory=PauseConfig)
+    profiles: ProfileConfig = field(default_factory=ProfileConfig)
 
 def calibrated_config(base: AppConfig | None = None,
                       calibration=None) -> AppConfig:

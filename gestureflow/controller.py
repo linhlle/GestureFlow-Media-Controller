@@ -28,6 +28,11 @@ class SystemController:
         self._cfg = config or DEFAULT_CONFIG
         self._stop = stop_event or threading.Event()
         self._commands = commands if commands is not None else load_commands()
+        # The unresolved set; profiles are layered onto this, never onto an
+        # already-resolved one, so switching apps twice cannot compound.
+        self._base_commands = self._commands
+        self._current_app = None
+        self._active_profile = None
 
         import pyautogui as _pag
 
@@ -96,6 +101,32 @@ class SystemController:
     def set_commands(self, commands: CommandSet) -> None:
         """Swap the binding set at runtime (used by hot-reload)."""
         self._commands = commands
+        self._base_commands = commands
+        self._active_profile = None
+        self._apply_profile(self._current_app)
+
+    def set_frontmost_app(self, app) -> None:
+        """Tell the controller which app is in front, so profiles can apply."""
+        if app == self._current_app:
+            return
+        self._current_app = app
+        self._apply_profile(app)
+
+    @property
+    def active_profile(self):
+        return self._active_profile
+
+    def _apply_profile(self, app) -> None:
+        base = self._base_commands
+        if not base.profiles:
+            return
+        name = base.profile_for(app)
+        if name == self._active_profile:
+            return
+        self._active_profile = name
+        self._commands = base.resolve(app)
+        print(f"[controller] Profile: {name or 'default'}"
+              + (f" ({app})" if app else ""))
 
     def execute_command(self, gesture_id: int) -> None:
         """Perform the action bound to ``gesture_id``, if any."""

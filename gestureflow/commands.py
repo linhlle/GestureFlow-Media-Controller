@@ -200,6 +200,21 @@ class Binding:
         return out
 
 
+@dataclass(frozen=True)
+class Profile:
+    """A set of bindings that applies when a matching app is frontmost."""
+
+    name: str
+    apps: tuple = ()
+    commands: CommandSet = None
+
+    def matches(self, app: Optional[str]) -> bool:
+        if app is None:
+            return False
+        needle = app.strip().lower()
+        return any(needle == candidate for candidate in self.apps)
+
+
 @dataclass
 class CommandSet:
     """An immutable-ish set of gesture bindings, keyed by model label."""
@@ -209,6 +224,7 @@ class CommandSet:
     neutral_label: int = 0
     source: Optional[Path] = None
     version: int = SCHEMA_VERSION
+    profiles: tuple = ()
 
     def has(self, label: int) -> bool:
         return int(label) in self.bindings
@@ -235,11 +251,54 @@ class CommandSet:
     def to_dict(self) -> Dict[str, Any]:
         entries = [self.bindings[label].to_dict() for label in self.labels()]
         entries += [self.named[name].to_dict() for name in self.gesture_names()]
-        return {
+        out: Dict[str, Any] = {
             "version": self.version,
             "neutral_label": self.neutral_label,
             "gestures": entries,
         }
+        if self.profiles:
+            out["profiles"] = [
+                {
+                    "name": profile.name,
+                    "match": {"apps": list(profile.apps)},
+                    "gestures": profile.commands.to_dict()["gestures"],
+                }
+                for profile in self.profiles
+            ]
+        return out
+
+    def overlay(self, other: CommandSet) -> CommandSet:
+        """This set with `other`'s bindings layered on top.
+
+        A profile states only what it changes. Anything it does not mention
+        keeps working exactly as it does by default, which is what makes a
+        profile a small edit rather than a second whole config to maintain.
+        """
+        bindings = dict(self.bindings)
+        bindings.update(other.bindings)
+        named = dict(self.named)
+        named.update(other.named)
+        return CommandSet(bindings=bindings, named=named,
+                          neutral_label=self.neutral_label,
+                          source=self.source, version=self.version,
+                          profiles=self.profiles)
+
+    def resolve(self, app: Optional[str]) -> CommandSet:
+        """The bindings that apply while `app` is frontmost.
+
+        First match wins, so config order is the tie-breaker and a user can
+        reason about precedence by reading top to bottom.
+        """
+        for profile in self.profiles:
+            if profile.matches(app):
+                return self.overlay(profile.commands)
+        return self
+
+    def profile_for(self, app: Optional[str]) -> Optional[str]:
+        for profile in self.profiles:
+            if profile.matches(app):
+                return profile.name
+        return None
 
     def to_yaml(self) -> str:
         return dump_yaml(self.to_dict())
@@ -418,6 +477,67 @@ def parse_commands(raw: Any, source: Optional[Path] = None) -> CommandSet:
     _require(isinstance(gestures, list) and gestures,
              f"{where}: 'gestures' must be a non-empty list")
 
+    bindings, named = _parse_gesture_list(gestures, where, neutral, version)
+
+    profiles = _parse_profiles(raw.get("profiles"), where, neutral, version)
+
+    return CommandSet(bindings=bindings, named=named, neutral_label=neutral,
+                      source=source, version=version, profiles=profiles)
+
+
+def _parse_profiles(raw: Any, where: str, neutral: int,
+                    version: int) -> tuple:
+    if raw is None:
+        return ()
+    _require(isinstance(raw, list) and raw,
+             f"{where}: 'profiles' must be a non-empty list when present")
+    _require(version >= 2,
+             f"{where}: profiles need config version 2 or later")
+
+    profiles = []
+    seen = set()
+    for i, entry in enumerate(raw):
+        item = f"{where}: profiles[{i}]"
+        _require(isinstance(entry, dict), f"{item} must be a mapping")
+
+        name = entry.get("name")
+        _require(isinstance(name, str) and name.strip(),
+                 f"{item}: 'name' is required")
+        name = name.strip()
+        _require(name.lower() not in seen,
+                 f"{item}: a profile named {name!r} is already defined")
+        seen.add(name.lower())
+
+        match = entry.get("match")
+        _require(isinstance(match, dict), f"{item}: 'match' must be a mapping")
+        apps = match.get("apps")
+        _require(isinstance(apps, list) and apps,
+                 f"{item}: 'match.apps' must be a non-empty list of "
+                 f"application names")
+        normalized = []
+        for app in apps:
+            _require(isinstance(app, str) and app.strip(),
+                     f"{item}: application names must be non-empty strings")
+            normalized.append(app.strip().lower())
+
+        gestures = entry.get("gestures")
+        _require(isinstance(gestures, list) and gestures,
+                 f"{item}: 'gestures' must be a non-empty list. A profile that "
+                 f"overrides nothing does nothing.")
+        bindings, named = _parse_gesture_list(
+            gestures, f"{item} ({name})", neutral, version)
+
+        profiles.append(Profile(
+            name=name,
+            apps=tuple(normalized),
+            commands=CommandSet(bindings=bindings, named=named,
+                                neutral_label=neutral, version=version),
+        ))
+    return tuple(profiles)
+
+
+def _parse_gesture_list(gestures: Any, where: str, neutral: int,
+                        version: int) -> tuple:
     bindings: Dict[int, Binding] = {}
     named: Dict[str, Binding] = {}
 
@@ -478,8 +598,7 @@ def parse_commands(raw: Any, source: Optional[Path] = None) -> CommandSet:
                                   label=label,
                                   description=description.strip())
 
-    return CommandSet(bindings=bindings, named=named, neutral_label=neutral,
-                      source=source, version=version)
+    return bindings, named
 
 
 # ---------------------------------------------------------------------------

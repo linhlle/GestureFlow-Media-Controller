@@ -49,6 +49,7 @@ from gestureflow.commands import CommandSet, load_commands
 from gestureflow.config import DEFAULT_CONFIG, AppConfig
 from gestureflow.controller import SystemController
 from gestureflow.dwell_fsm import DwellFSM
+from gestureflow.frontmost import make_provider
 from gestureflow.inference import InferenceResult, InferenceThread
 from gestureflow.metrics import STAGE_RENDER, MetricsRecorder
 from gestureflow.modes import Mode
@@ -500,13 +501,26 @@ class Pipeline:
                                     self.controller.screen_h)
         self.router.set_volume_reference(self.controller.volume)
 
+        # Only poll for the frontmost app if the config actually has profiles.
+        # Spawning an osascript every second to answer a question nobody asked
+        # would be pure waste.
+        self.frontmost = make_provider(
+            enabled=bool(commands.profiles) and cfg.profiles.enabled,
+            interval=cfg.profiles.poll_seconds,
+        )
+
     def start(self) -> None:
         self.capture.start()
         self.inference.start()
         self.dispatcher.start()
 
+    def sync_profile(self) -> None:
+        """Point the controller at the profile for whatever app is in front."""
+        self.controller.set_frontmost_app(self.frontmost.current())
+
     def shutdown(self) -> None:
         self.stop_event.set()
+        self.frontmost.stop()
         self.dispatcher.stop()
         self.capture.join(timeout=3.0)
         self.inference.join(timeout=3.0)
@@ -579,6 +593,7 @@ def run(cfg: AppConfig = DEFAULT_CONFIG,
                     break
                 continue
 
+            pipe.sync_profile()
             for action in pipe.router.route(result):
                 pipe.dispatcher.submit(action)
 
