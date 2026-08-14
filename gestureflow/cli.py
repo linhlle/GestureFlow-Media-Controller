@@ -7,6 +7,8 @@
     python -m gestureflow false-triggers ...  count actions over no-intent takes
     python -m gestureflow validate [config]   check a command config
     python -m gestureflow selftest            check detectors, no camera needed
+    python -m gestureflow calibrate           fit thresholds to your hand
+    python -m gestureflow calibration         show the calibration in effect
     python -m gestureflow bridge              serve the local web UI
 """
 
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -216,6 +219,133 @@ def cmd_validate(args) -> int:
     return 0
 
 
+def cmd_calibrate(args) -> int:
+    """Guided per-user calibration.
+
+    Records the two pinch states from the camera and writes thresholds fitted
+    to the user's hand. Needs a person at the camera, so there is no way to
+    exercise this end to end without one -- the maths it feeds is tested
+    separately in tests/test_calibration.py.
+    """
+    import queue
+    import threading
+
+    import cv2
+
+    from gestureflow import calibration as calib
+    from gestureflow.capture import CaptureThread
+    from gestureflow.click_fsm import _pinch_distance
+    from gestureflow.scroll_fsm import hand_scale, is_degenerate
+
+    steps = [
+        ("closed", "Pinch your THUMB and INDEX finger together, firmly.", (4, 8)),
+        ("opened", "Open your hand wide, fingers spread.", (4, 8)),
+        ("right_closed", "Touch your MIDDLE finger to your INDEX finger.", (12, 8)),
+        ("right_opened", "Open your hand wide again.", (12, 8)),
+    ]
+
+    stop = threading.Event()
+    q: queue.Queue = queue.Queue(maxsize=4)
+    cap = CaptureThread(q, DEFAULT_CONFIG, stop)
+    cap.start()
+
+    samples = {name: [] for name, _, _ in steps}
+    scales = []
+
+    print("\n[calibrate] Four short recordings. Hold each pose steadily.")
+    print("[calibrate] Press SPACE to record a pose, or q to abort.\n")
+
+    try:
+        for name, prompt, (lm_a, lm_b) in steps:
+            print(f"[calibrate] {prompt}")
+            print(f"[calibrate]   press SPACE when ready "
+                  f"({args.seconds:.0f}s of recording)")
+
+            if not _wait_for_space(cap, q, prompt):
+                print("[calibrate] Aborted.")
+                return 1
+
+            deadline = time.monotonic() + args.seconds
+            while time.monotonic() < deadline:
+                try:
+                    capture = q.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                lm = capture.landmarks
+                if lm is None or is_degenerate(lm):
+                    continue
+                scale = hand_scale(lm)
+                samples[name].append(_pinch_distance(lm, lm_a, lm_b) / scale)
+                scales.append(scale)
+
+                frame = capture.frame.copy()
+                remaining = deadline - time.monotonic()
+                cv2.putText(frame, f"RECORDING {name}  {remaining:0.1f}s",
+                            (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                            (0, 0, 255), 2)
+                cv2.imshow("GestureFlow calibration", frame)
+                cv2.waitKey(1)
+
+            print(f"[calibrate]   captured {len(samples[name])} samples\n")
+    finally:
+        stop.set()
+        cap.join(timeout=3.0)
+        cv2.destroyAllWindows()
+
+    try:
+        result = calib.derive(
+            closed=samples["closed"],
+            opened=samples["opened"],
+            right_closed=samples["right_closed"],
+            right_opened=samples["right_opened"],
+            hand_scale=statistics.median(scales) if scales else 0.0,
+        )
+    except calib.CalibrationError as exc:
+        print(f"[calibrate] Could not derive thresholds: {exc}")
+        print("[calibrate] Nothing was written; your existing settings stand.")
+        return 1
+
+    path = result.write(args.out)
+    print("[calibrate] Written to", path)
+    for line in calib.summarize(result):
+        print("           ", line)
+    print("\n[calibrate] Run 'gestureflow run' to use them. Delete that file "
+          "to go back to the defaults.")
+    return 0
+
+
+def _wait_for_space(cap, q, prompt: str) -> bool:
+    """Show the live feed until the user presses space. False means abort."""
+    import queue as _queue
+
+    import cv2
+
+    while True:
+        try:
+            capture = q.get(timeout=0.2)
+        except _queue.Empty:
+            continue
+        frame = capture.frame.copy()
+        cv2.putText(frame, prompt[:52], (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 255), 2)
+        cv2.putText(frame, "SPACE to record, q to abort", (20, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        cv2.imshow("GestureFlow calibration", frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord(" "):
+            return True
+        if key == ord("q"):
+            return False
+
+
+def cmd_calibration_show(args) -> int:
+    from gestureflow import calibration as calib
+    current = calib.load(args.path)
+    for line in calib.summarize(current):
+        print(line)
+    return 0
+
+
 def cmd_selftest(args) -> int:
     """Check the geometric detectors against the recorded dataset.
 
@@ -369,6 +499,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_val.add_argument("--model", type=Path, default=None,
                        help="also check bindings against this model's classes")
     p_val.set_defaults(func=cmd_validate)
+
+    p_cal = sub.add_parser(
+        "calibrate",
+        help="fit the pinch thresholds to your own hand (needs a camera)")
+    p_cal.add_argument("--seconds", type=float, default=3.0,
+                       help="how long to record each pose")
+    p_cal.add_argument("--out", type=Path, default=None,
+                       help="where to write (default: "
+                            "~/.gestureflow/calibration.json)")
+    p_cal.set_defaults(func=cmd_calibrate)
+
+    p_calshow = sub.add_parser(
+        "calibration", help="show the calibration currently in effect")
+    p_calshow.add_argument("--path", type=Path, default=None)
+    p_calshow.set_defaults(func=cmd_calibration_show)
 
     p_self = sub.add_parser(
         "selftest",

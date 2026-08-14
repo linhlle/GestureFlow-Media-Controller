@@ -528,6 +528,16 @@ def prepare(cfg: AppConfig, commands_path: Optional[Path] = None,
             model_file: Optional[Path] = None,
             metrics_enabled: bool = True):
     """Load the model and commands, and check they agree about labels."""
+    from gestureflow import calibration as _calibration
+    from gestureflow.config import calibrated_config
+
+    user_calibration = _calibration.load()
+    if user_calibration is not None:
+        cfg = calibrated_config(cfg, user_calibration)
+        print("[gestureflow] Using your calibrated pinch thresholds "
+              f"(close {cfg.click.close_threshold:.3f}, "
+              f"open {cfg.click.open_threshold:.3f}).")
+
     model = load_model(model_file)
     commands = load_commands(commands_path)
 

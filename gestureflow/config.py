@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 def _env_float(key: str, default: float) -> float:
@@ -391,7 +391,36 @@ class AppConfig:
     hud: HudConfig = field(default_factory=HudConfig)
     pause: PauseConfig = field(default_factory=PauseConfig)
 
-# Module-level default instance — import this everywhere
+def calibrated_config(base: AppConfig | None = None,
+                      calibration=None) -> AppConfig:
+    """Overlay per-user calibration onto a config.
+
+    Only the pinch thresholds are personal; everything else stays as shipped.
+    A missing or unusable calibration returns the base config untouched --
+    calibration refines the defaults, it never gates them.
+    """
+    base = base or AppConfig()
+    if calibration is None:
+        from gestureflow import calibration as _calibration
+        calibration = _calibration.load()
+    if calibration is None:
+        return base
+
+    return replace(
+        base,
+        click=replace(base.click,
+                      close_threshold=calibration.click_close,
+                      open_threshold=calibration.click_open),
+        right_click=replace(base.right_click,
+                            close_threshold=calibration.right_click_close,
+                            open_threshold=calibration.right_click_open),
+    )
+
+
+# Module-level default instance — import this everywhere.
+# Deliberately *not* calibrated: this is the shipped baseline, and tests and
+# the parity suites compare against it. The app calls calibrated_config() at
+# startup to pick up the user's file.
 DEFAULT_CONFIG = AppConfig()
 
 
