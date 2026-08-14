@@ -167,9 +167,18 @@ class TestNullMetrics:
 # ---------------------------------------------------------------------------
 
 def _lms(wrist_y=0.5):
+    """A still, open-ish hand of realistic size.
+
+    Not all 21 points at one coordinate: that is a hand with no measurable
+    scale, which every ratio threshold reads as "everything is touching".
+    """
     from types import SimpleNamespace
-    lm = [SimpleNamespace(x=0.5, y=0.5, z=0.0) for _ in range(21)]
-    lm[0] = SimpleNamespace(x=0.5, y=wrist_y, z=0.0)
+    lm = [SimpleNamespace(x=0.5, y=wrist_y - 0.10, z=0.0) for _ in range(21)]
+    lm[0] = SimpleNamespace(x=0.5, y=wrist_y, z=0.0)          # wrist
+    lm[9] = SimpleNamespace(x=0.5, y=wrist_y - 0.20, z=0.0)   # middle MCP
+    lm[4] = SimpleNamespace(x=0.68, y=wrist_y - 0.08, z=0.0)  # thumb tip, clear
+    lm[8] = SimpleNamespace(x=0.44, y=wrist_y - 0.16, z=0.0)  # index tip
+    lm[12] = SimpleNamespace(x=0.52, y=wrist_y - 0.16, z=0.0) # middle tip
     return lm
 
 

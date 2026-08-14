@@ -184,6 +184,12 @@ class SystemController:
     def right_click(self) -> None:
         self._pag.rightClick()
 
+    def mouse_down(self, button: str = "left") -> None:
+        self._pag.mouseDown(button=button)
+
+    def mouse_up(self, button: str = "left") -> None:
+        self._pag.mouseUp(button=button)
+
     # ------------------------------------------------------------------
     # Scroll
     # ------------------------------------------------------------------

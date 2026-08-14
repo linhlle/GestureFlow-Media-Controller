@@ -75,6 +75,23 @@ export function pinchDistance(landmarks, a, b) {
 }
 
 const MIN_HAND_SCALE = 1e-6;
+// Below this the hand has effectively no size; treat it as no hand at all.
+const DEGENERATE_HAND_SCALE = 1e-3;
+
+/**
+ * True when the landmarks carry no measurable hand.
+ *
+ * Every threshold is a fraction of hand scale, so a scale of zero makes every
+ * distance read as "touching" -- a collapsed hand looks like a permanent pinch.
+ */
+export function isDegenerate(landmarks) {
+  const a = landmarks[LM.WRIST];
+  const b = landmarks[LM.MIDDLE_MCP];
+  const raw = Math.sqrt(
+    (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2,
+  );
+  return raw <= DEGENERATE_HAND_SCALE;
+}
 
 /**
  * Wrist to middle-finger MCP: the reference length every threshold is measured
@@ -133,6 +150,7 @@ export function strictFist(landmarks, threshold = 0.19) {
 
 /** Three exclusion gates, in the same priority order as the Python version. */
 export function isTrueScrollFist(landmarks) {
+  if (isDegenerate(landmarks)) return false;
   if (indexExtended(landmarks)) return false;
   if (thumbRaised(landmarks)) return false;
   return strictFist(landmarks);
@@ -159,7 +177,7 @@ export class ClickFSM {
 
   update(landmarks, now) {
     this.clickFired = false;
-    if (!landmarks) {
+    if (!landmarks || isDegenerate(landmarks)) {
       this.reset();
       return;
     }

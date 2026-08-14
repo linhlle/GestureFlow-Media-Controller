@@ -161,6 +161,21 @@ class ClickConfig:
     )
 
 # ---------------------------------------------------------------------------
+# Drag and drop (left pinch held past a threshold)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DragConfig:
+    enabled: bool = True
+    # Measured from the moment the pinch reaches HELD, not from first contact,
+    # so it composes with min_hold_frames instead of racing it. A deliberate
+    # click is well under this; a deliberate drag is comfortably over.
+    hold_seconds: float = field(
+        default_factory=lambda: _env_float("DRAG_HOLD_SECONDS", 0.55)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Right-click detection (middle finger + index pinch FSM)
 # ---------------------------------------------------------------------------
 
@@ -266,6 +281,7 @@ class AppConfig:
     volume: VolumeConfig = field(default_factory=VolumeConfig)
     queues: QueueConfig = field(default_factory=QueueConfig)
     click: ClickConfig = field(default_factory=ClickConfig)
+    drag: DragConfig = field(default_factory=DragConfig)
     right_click: RightClickConfig = field(default_factory=RightClickConfig)
     scroll: ScrollConfig = field(default_factory=ScrollConfig)
     hud: HudConfig = field(default_factory=HudConfig)

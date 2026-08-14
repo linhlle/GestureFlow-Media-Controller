@@ -59,6 +59,12 @@ class InferenceResult:
     index_extended: bool
     thumb_raised: bool
 
+    # Drag
+    drag_started: bool = False
+    drag_ended: bool = False
+    dragging: bool = False
+    drag_progress: float = 0.0
+
     # Pause kill switch
     paused: bool = False
     pause_toggled: bool = False
@@ -93,7 +99,7 @@ class InferenceThread(threading.Thread):
 
         # Left-click: thumb(4) + index(8)
         self._left_fsm  = ClickFSM(config=cfg.click,       landmark_a=4,  landmark_b=8,
-                                   clock=clock)
+                                   clock=clock, drag=cfg.drag)
         # Right-click: middle(12) + index(8)
         self._right_fsm = ClickFSM(config=cfg.right_click,  landmark_a=12, landmark_b=8,
                                    clock=clock)
@@ -214,6 +220,10 @@ class InferenceThread(threading.Thread):
             scroll_state=self._scroll_fsm.state,
             index_extended=_index_extended(lm),
             thumb_raised=_thumb_raised(lm),
+            drag_started=self._left_fsm.drag_started,
+            drag_ended=self._left_fsm.drag_ended,
+            dragging=self._left_fsm.dragging,
+            drag_progress=self._left_fsm.drag_progress,
             paused=self._pause_fsm.paused,
             pause_toggled=self._pause_fsm.toggled,
             pause_progress=self._pause_fsm.progress,

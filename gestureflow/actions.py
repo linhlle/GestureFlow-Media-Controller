@@ -71,6 +71,23 @@ class Click:
 
 
 @dataclass(frozen=True)
+class MouseDown:
+    """Press and hold the button. Must never be dropped or reordered.
+
+    A dropped MouseDown means the following MouseUp releases a button that was
+    never pressed; a dropped MouseUp leaves it stuck down forever.
+    """
+    button: str = "left"
+    captured_at: float = 0.0
+
+
+@dataclass(frozen=True)
+class MouseUp:
+    button: str = "left"
+    captured_at: float = 0.0
+
+
+@dataclass(frozen=True)
 class Scroll:
     delta: int = 0
     captured_at: float = 0.0
@@ -90,7 +107,8 @@ class Command:
 
 
 # Discrete events are never dropped; cursor moves are.
-DISCRETE_TYPES = (Click, Scroll, SetVolume, Command, ReleaseCursor)
+DISCRETE_TYPES = (Click, MouseDown, MouseUp, Scroll, SetVolume,
+                  Command, ReleaseCursor)
 
 
 class ActionDispatcher(threading.Thread):
@@ -211,6 +229,10 @@ class ActionDispatcher(threading.Thread):
                 self._ctrl.right_click()
             else:
                 self._ctrl.click()
+        elif isinstance(action, MouseDown):
+            self._ctrl.mouse_down(action.button)
+        elif isinstance(action, MouseUp):
+            self._ctrl.mouse_up(action.button)
         elif isinstance(action, Scroll):
             self._ctrl.scroll(action.delta)
         elif isinstance(action, SetVolume):

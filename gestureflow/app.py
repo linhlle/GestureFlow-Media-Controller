@@ -280,6 +280,13 @@ class GestureRouter:
         if result.action is not None:
             out.append(act.Command(result.action, captured_at))
 
+        # Drag edges come before the click so a press always precedes the
+        # movement it is meant to carry.
+        if result.drag_started:
+            out.append(act.MouseDown("left", captured_at))
+        if result.drag_ended:
+            out.append(act.MouseUp("left", captured_at))
+
         if result.click_fired:
             out.append(act.Click("left", captured_at))
         if result.right_click_fired:
@@ -347,6 +354,9 @@ class GestureRouter:
         if result.scroll_active:
             return Mode.SCROLL
 
+        if result.dragging:
+            return Mode.DRAG
+
         if result.fsm_active or result.right_fsm_active:
             return Mode.CLICK
 
@@ -374,6 +384,17 @@ class GestureRouter:
 
     def cursor_enabled(self, result: InferenceResult) -> bool:
         return self.active_mode(result) is Mode.CURSOR
+
+    def pointer_tracking_enabled(self, result: InferenceResult) -> bool:
+        """Should the pointer follow the hand this frame?
+
+        Wider than cursor_enabled, because a drag is exactly "the pointer keeps
+        tracking while the button is held". During a drag the index fingertip is
+        touching the thumb, so index_extended is false and CURSOR never claims
+        the frame -- yet the pointer must still move, or you could press and
+        release but never actually drag anything.
+        """
+        return self.active_mode(result) in (Mode.CURSOR, Mode.DRAG)
 
     def scroll_enabled(self, result: InferenceResult) -> bool:
         return self.active_mode(result) is Mode.SCROLL
@@ -403,7 +424,7 @@ class GestureRouter:
         return target
 
     def _route_cursor(self, result: InferenceResult) -> Optional[tuple]:
-        if not self.cursor_enabled(result):
+        if not self.pointer_tracking_enabled(result):
             return None
 
         landmarks = result.capture.landmarks

@@ -148,6 +148,22 @@ _CURL_PAIRS = (
 # fingertips of a curled hand fall inside a fixed 0.045 radius even though,
 # relative to that hand, they are no closer than they ever were.
 _MIN_HAND_SCALE = 1e-6
+# Below this the hand has effectively no size; treat it as no hand at all.
+_DEGENERATE_HAND_SCALE = 1e-3
+
+
+def is_degenerate(landmarks: Any) -> bool:
+    """True when the landmarks carry no measurable hand.
+
+    MediaPipe can emit a collapsed or near-collapsed set when tracking breaks
+    down. Every threshold here is a fraction of hand scale, so a scale of zero
+    makes every distance read as "touching" -- a collapsed hand looks like a
+    permanent pinch. No geometric conclusion drawn from it is valid.
+    """
+    a = landmarks[_WRIST]
+    b = landmarks[_MIDDLE_MCP]
+    raw = math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2)
+    return raw <= _DEGENERATE_HAND_SCALE
 
 
 def hand_scale(landmarks: Any) -> float:
@@ -207,6 +223,8 @@ def _strict_fist(landmarks: Any, threshold: float = 0.19) -> bool:
 
 def _is_true_scroll_fist(landmarks: Any) -> bool:
     """A fist held for scrolling, as opposed to any other closed-ish hand."""
+    if is_degenerate(landmarks):
+        return False
     if _index_extended(landmarks):
         return False
     if _thumb_raised(landmarks):
