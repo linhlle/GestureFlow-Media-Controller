@@ -1,22 +1,37 @@
 # GestureFlow default command bindings.
 #
-# This file reproduces the bindings the app shipped with. Copy it to
-# ~/.gestureflow/commands.yaml to customize, or build one at the website's
-# command builder and save it there.
+# Copy to ~/.gestureflow/commands.yaml to customize, or build one at the
+# website's command builder and save it there. Check any edit with:
 #
-# `label` is the integer class the gesture model predicts. The shipped model
-# predicts 0-3 only, so bindings for labels above 3 need a retrained model --
-# GestureFlow warns at startup if a binding can never fire.
+#     gestureflow validate
 #
-#   0  Neutral    (no action; enables cursor / click / scroll / volume modes)
-#   1  L-Shape
-#   2  High-Five
-#   3  2-Finger
+# Bindings are keyed one of two ways:
+#
+#   label:    a pose the model classifies. The shipped model predicts 0-3 only,
+#             so a binding for a higher label needs a retrain -- GestureFlow
+#             warns at startup if a binding can never fire.
+#
+#               0  Neutral    (no action; enables cursor / click / scroll /
+#                              volume / swipe / zoom)
+#               1  L-Shape
+#               2  High-Five
+#               3  2-Finger
+#
+#   gesture:  a geometric gesture, detected from hand shape and motion rather
+#             than classified. Needs no training data.
+#
+#               swipe_left / swipe_right   closed fist, flick sideways
+#               zoom_in / zoom_out         thumb and index spread or close
+#
+# Gestures with no binding here simply do nothing, which is a fine way to turn
+# one off.
 
-version: 1
+version: 2
 neutral_label: 0
 
 gestures:
+  # --- classified poses -----------------------------------------------------
+
   - label: 1
     name: Spotlight
     description: Open Spotlight search
@@ -38,18 +53,80 @@ gestures:
       type: hotkey
       keys: [command, tab]
 
-# Bindings for gestures the shipped model cannot predict yet. Collect data with
-# `python scripts/data_logger.py`, retrain, then move these into the list above.
+  # --- geometric gestures ---------------------------------------------------
+
+  - gesture: swipe_left
+    name: Previous desktop
+    description: Closed fist, flick left
+    action:
+      type: hotkey
+      keys: [ctrl, left]
+
+  - gesture: swipe_right
+    name: Next desktop
+    description: Closed fist, flick right
+    action:
+      type: hotkey
+      keys: [ctrl, right]
+
+  - gesture: zoom_in
+    name: Zoom in
+    description: Thumb and index spread apart
+    action:
+      type: hotkey
+      keys: [command, "="]
+
+  - gesture: zoom_out
+    name: Zoom out
+    description: Thumb and index drawn together
+    action:
+      type: hotkey
+      keys: [command, "-"]
+
+# ---------------------------------------------------------------------------
+# Other things a gesture can do. Six action types beyond `hotkey`:
 #
-#  - label: 4
-#    name: Screenshot
-#    description: Capture a selected region
-#    action:
-#      type: hotkey
-#      keys: [command, shift, "4"]
+#   type: keypress          press one key
+#     key: escape
 #
-#  - label: 5
-#    name: Open Notes
-#    action:
-#      type: launch
-#      app: Notes
+#   type: media             play/pause, next, previous, volumeup,
+#     action: playpause     volumedown, mute
+#
+#   type: launch            open an application by name
+#     app: Notes
+#
+#   type: url               open a link in the default browser.
+#     url: https://example.com        http and https only
+#
+#   type: text              type a snippet. Typed rather than pasted, so your
+#     text: "kind regards"  clipboard is left alone.
+#
+#   type: chord             an ordered sequence of hotkeys
+#     steps:
+#       - keys: [command, k]
+#       - keys: [enter]
+#         delay: 0.15       seconds to wait before this step
+#
+#   type: applescript       run an AppleScript snippet (macOS will ask
+#     script: beep          permission the first time)
+#
+#   type: shell             run a command. An argument list, not a command
+#     argv: [say, hello]    string, and run without a shell -- pipes and
+#                           redirects are literal text, not syntax.
+#
+# Swapping the swipes for browser history, for example:
+#
+#   - gesture: swipe_left
+#     name: Back
+#     action:
+#       type: hotkey
+#       keys: [command, "["]
+#
+# Or for presenting:
+#
+#   - gesture: swipe_right
+#     name: Next slide
+#     action:
+#       type: keypress
+#       key: right
+# ---------------------------------------------------------------------------

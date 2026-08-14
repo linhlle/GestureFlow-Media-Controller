@@ -157,8 +157,32 @@ class SystemController:
             # command chaining are structurally impossible here.
             self._spawn(list(action.argv))
 
+        elif kind == "url":
+            # argv form again: the URL is one argument, so nothing in it can
+            # become a second command however it is punctuated.
+            self._spawn(["open", action.url])
+
+        elif kind == "text":
+            # Typed rather than pasted. Going through the clipboard would be
+            # faster but would destroy whatever the user had copied.
+            self._pag.write(action.text, interval=0.01)
+
+        elif kind == "chord":
+            self._perform_chord(action)
+
         else:
             raise ValueError(f"unsupported action type: {kind!r}")
+
+    def _perform_chord(self, action: Action) -> None:
+        """Send an ordered sequence of hotkeys with pauses between.
+
+        Runs on the action thread, which is why the per-step delay is capped in
+        validation: a long pause here would hold up every action behind it.
+        """
+        for i, step in enumerate(action.steps):
+            if i:
+                time.sleep(step.delay)
+            self._pag.hotkey(*step.keys)
 
     def _perform_media(self, media: str) -> None:
         if media == "mute":

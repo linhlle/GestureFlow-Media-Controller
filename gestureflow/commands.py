@@ -75,7 +75,21 @@ MEDIA_ACTIONS = frozenset({
 
 ACTION_TYPES = frozenset({
     "hotkey", "keypress", "media", "launch", "applescript", "shell",
+    "url", "text", "chord",
 })
+
+# Only schemes that open a browser. javascript:, file: and data: are the ones
+# worth naming: the first executes in whatever page is open, the second reads
+# local files, the third smuggles a whole document inline. A config can arrive
+# by download, so the allowlist is the whole defence.
+URL_SCHEMES = frozenset({"http", "https"})
+MAX_URL_LENGTH = 2000
+
+# Typed one character at a time rather than pasted, so the user's clipboard is
+# left alone. That makes long text slow, hence the cap.
+MAX_TEXT_LENGTH = 500
+MAX_CHORD_STEPS = 12
+MAX_CHORD_DELAY = 2.0
 
 _APP_NAME_RE = re.compile(r"^[A-Za-z0-9 ._+-]{1,64}$")
 
@@ -89,6 +103,15 @@ class CommandConfigError(ValueError):
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class ChordStep:
+    keys: tuple
+    delay: float = 0.05
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"keys": list(self.keys), "delay": self.delay}
+
+
+@dataclass(frozen=True)
 class Action:
     type: str
     keys: tuple = ()
@@ -97,6 +120,9 @@ class Action:
     app: str = ""
     script: str = ""
     argv: tuple = ()
+    url: str = ""
+    text: str = ""
+    steps: tuple = ()
 
     def to_dict(self) -> Dict[str, Any]:
         if self.type == "hotkey":
@@ -111,6 +137,13 @@ class Action:
             return {"type": "applescript", "script": self.script}
         if self.type == "shell":
             return {"type": "shell", "argv": list(self.argv)}
+        if self.type == "url":
+            return {"type": "url", "url": self.url}
+        if self.type == "text":
+            return {"type": "text", "text": self.text}
+        if self.type == "chord":
+            return {"type": "chord",
+                    "steps": [step.to_dict() for step in self.steps]}
         raise CommandConfigError(f"unknown action type {self.type!r}")
 
     def describe(self) -> str:
@@ -127,6 +160,13 @@ class Action:
             return f"applescript: {first[:40]}"
         if self.type == "shell":
             return "shell: " + " ".join(self.argv)
+        if self.type == "url":
+            return f"open {self.url}"
+        if self.type == "text":
+            preview = self.text if len(self.text) <= 24 else self.text[:21] + "..."
+            return f"type {preview!r}"
+        if self.type == "chord":
+            return " then ".join(" + ".join(step.keys) for step in self.steps)
         return self.type
 
 
@@ -276,6 +316,72 @@ def parse_action(raw: Any, where: str) -> Action:
         _require(len(script) <= 4000,
                  f"{where}: applescript is longer than the 4000-char limit")
         return Action(type="applescript", script=script)
+
+    if kind == "url":
+        url = raw.get("url")
+        _require(isinstance(url, str) and url.strip(),
+                 f"{where}: url needs a 'url'")
+        url = url.strip()
+        _require(len(url) <= MAX_URL_LENGTH,
+                 f"{where}: url is longer than the {MAX_URL_LENGTH}-char limit")
+        scheme = url.split(":", 1)[0].lower() if ":" in url else ""
+        _require(scheme in URL_SCHEMES,
+                 f"{where}: {url!r} must start with http:// or https://. "
+                 f"Other schemes are rejected -- javascript: would run in "
+                 f"whatever page is open, and file: would read local files.")
+        _require("\n" not in url and "\r" not in url,
+                 f"{where}: a url cannot contain line breaks")
+        return Action(type="url", url=url)
+
+    if kind == "text":
+        text = raw.get("text")
+        _require(isinstance(text, str) and text,
+                 f"{where}: text needs a 'text' value")
+        _require(len(text) <= MAX_TEXT_LENGTH,
+                 f"{where}: text is longer than the {MAX_TEXT_LENGTH}-char "
+                 f"limit. It is typed one character at a time so the clipboard "
+                 f"is left alone, which makes long text slow.")
+        # Tabs and newlines are real keystrokes with real effects (moving focus,
+        # submitting forms). Other control characters are not typeable at all.
+        bad = [c for c in text if ord(c) < 32 and c not in "\t\n"]
+        _require(not bad,
+                 f"{where}: text contains control characters that cannot be "
+                 f"typed: {[hex(ord(c)) for c in bad[:3]]}")
+        return Action(type="text", text=text)
+
+    if kind == "chord":
+        steps = raw.get("steps")
+        _require(isinstance(steps, (list, tuple)) and steps,
+                 f"{where}: chord needs a non-empty 'steps' list")
+        _require(len(steps) <= MAX_CHORD_STEPS,
+                 f"{where}: chord is limited to {MAX_CHORD_STEPS} steps")
+
+        parsed = []
+        for n, step in enumerate(steps):
+            at = f"{where}: chord step {n + 1}"
+            _require(isinstance(step, dict), f"{at} must be a mapping")
+
+            keys = step.get("keys")
+            _require(isinstance(keys, (list, tuple)) and keys,
+                     f"{at}: needs a non-empty 'keys' list")
+            _require(len(keys) <= 5, f"{at}: at most 5 keys")
+            normalized = []
+            for k in keys:
+                _require(isinstance(k, str), f"{at}: keys must be strings")
+                low = k.strip().lower()
+                _require(low in VALID_KEYS,
+                         f"{at}: {k!r} is not a recognized key name")
+                normalized.append(low)
+
+            delay = step.get("delay", 0.05)
+            _require(isinstance(delay, (int, float)) and not isinstance(delay, bool),
+                     f"{at}: 'delay' must be a number")
+            _require(0.0 <= delay <= MAX_CHORD_DELAY,
+                     f"{at}: 'delay' must be between 0 and {MAX_CHORD_DELAY} "
+                     f"seconds -- a longer pause would block the action thread")
+            parsed.append(ChordStep(keys=tuple(normalized), delay=float(delay)))
+
+        return Action(type="chord", steps=tuple(parsed))
 
     # kind == "shell"
     argv = raw.get("argv")

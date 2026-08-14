@@ -137,6 +137,11 @@ class TestActionValidation:
             "launch": {"type": "launch", "app": "Notes"},
             "applescript": {"type": "applescript", "script": "beep"},
             "shell": {"type": "shell", "argv": ["echo", "hi"]},
+            "url": {"type": "url", "url": "https://example.com"},
+            "text": {"type": "text", "text": "hello"},
+            "chord": {"type": "chord",
+                      "steps": [{"keys": ["command", "k"]},
+                                {"keys": ["enter"], "delay": 0.1}]},
         }
         assert set(samples) == ACTION_TYPES
         for kind, raw in samples.items():
@@ -320,3 +325,164 @@ class TestCommandSetAccessors:
     def test_describe_is_human_readable(self):
         commands = parse_commands(cfg_doc())
         assert commands.get(1).action.describe() == "command + space"
+
+
+# ---------------------------------------------------------------------------
+# Action types added for richer bindings
+# ---------------------------------------------------------------------------
+
+class TestUrlAction:
+    def test_https_is_accepted(self):
+        action = parse_action({"type": "url", "url": "https://example.com"}, "t")
+        assert action.url == "https://example.com"
+
+    def test_http_is_accepted(self):
+        assert parse_action({"type": "url", "url": "http://a.test"}, "t").url
+
+    @pytest.mark.parametrize("url", [
+        "javascript:alert(document.cookie)",
+        "JavaScript:alert(1)",
+        "file:///etc/passwd",
+        "data:text/html;base64,PHNjcmlwdD4=",
+        "vbscript:msgbox(1)",
+        "about:blank",
+        "example.com",              # no scheme at all
+    ])
+    def test_non_browser_schemes_are_rejected(self, url):
+        """A config can arrive by download; the allowlist is the whole defence."""
+        with pytest.raises(CommandConfigError, match="http"):
+            parse_action({"type": "url", "url": url}, "t")
+
+    def test_line_breaks_are_rejected(self):
+        with pytest.raises(CommandConfigError, match="line breaks"):
+            parse_action({"type": "url", "url": "https://a.test\nhttps://b"}, "t")
+
+    def test_oversized_urls_are_rejected(self):
+        with pytest.raises(CommandConfigError, match="limit"):
+            parse_action({"type": "url", "url": "https://a/" + "x" * 3000}, "t")
+
+    def test_query_strings_and_fragments_survive(self):
+        url = "https://example.com/a?b=c&d=e#f"
+        assert parse_action({"type": "url", "url": url}, "t").url == url
+
+
+class TestTextAction:
+    def test_plain_text_is_accepted(self):
+        assert parse_action({"type": "text", "text": "hi there"}, "t").text
+
+    def test_tabs_and_newlines_are_allowed(self):
+        """They are real keystrokes with real effects, and often the point."""
+        action = parse_action({"type": "text", "text": "a\tb\nc"}, "t")
+        assert action.text == "a\tb\nc"
+
+    @pytest.mark.parametrize("bad", ["a\x00b", "a\x07b", "a\x1bb"])
+    def test_untypeable_control_characters_are_rejected(self, bad):
+        with pytest.raises(CommandConfigError, match="control characters"):
+            parse_action({"type": "text", "text": bad}, "t")
+
+    def test_oversized_text_is_rejected(self):
+        with pytest.raises(CommandConfigError, match="limit"):
+            parse_action({"type": "text", "text": "x" * 5000}, "t")
+
+    def test_empty_text_is_rejected(self):
+        with pytest.raises(CommandConfigError, match="text"):
+            parse_action({"type": "text", "text": ""}, "t")
+
+
+class TestChordAction:
+    def test_a_sequence_of_hotkeys_is_accepted(self):
+        action = parse_action({"type": "chord", "steps": [
+            {"keys": ["command", "k"]},
+            {"keys": ["enter"], "delay": 0.2},
+        ]}, "t")
+        assert len(action.steps) == 2
+        assert action.steps[0].keys == ("command", "k")
+        assert action.steps[1].delay == 0.2
+
+    def test_keys_are_validated_per_step(self):
+        with pytest.raises(CommandConfigError, match="not a recognized key"):
+            parse_action({"type": "chord",
+                          "steps": [{"keys": ["comand", "k"]}]}, "t")
+
+    def test_an_empty_chord_is_rejected(self):
+        with pytest.raises(CommandConfigError, match="non-empty"):
+            parse_action({"type": "chord", "steps": []}, "t")
+
+    def test_absurd_step_counts_are_rejected(self):
+        with pytest.raises(CommandConfigError, match="limited to"):
+            parse_action({"type": "chord",
+                          "steps": [{"keys": ["a"]}] * 50}, "t")
+
+    def test_a_long_delay_is_rejected(self):
+        """A long pause would block every action queued behind it."""
+        with pytest.raises(CommandConfigError, match="between 0 and"):
+            parse_action({"type": "chord",
+                          "steps": [{"keys": ["a"], "delay": 60}]}, "t")
+
+    def test_a_negative_delay_is_rejected(self):
+        with pytest.raises(CommandConfigError, match="between 0 and"):
+            parse_action({"type": "chord",
+                          "steps": [{"keys": ["a"], "delay": -1}]}, "t")
+
+    def test_delay_defaults_when_omitted(self):
+        action = parse_action({"type": "chord", "steps": [{"keys": ["a"]}]}, "t")
+        assert action.steps[0].delay == 0.05
+
+
+class TestNewTypesRoundTrip:
+    @pytest.mark.parametrize("raw", [
+        {"type": "url", "url": "https://example.com/x?y=1"},
+        {"type": "text", "text": "kind regards"},
+        {"type": "chord", "steps": [{"keys": ["command", "k"], "delay": 0.05},
+                                    {"keys": ["enter"], "delay": 0.2}]},
+    ])
+    def test_yaml_round_trip(self, raw):
+        original = parse_commands(cfg_doc(gestures=[
+            {"label": 1, "name": "X", "action": raw}]))
+        reparsed = parse_commands(yaml.safe_load(original.to_yaml()))
+        assert reparsed.to_dict() == original.to_dict()
+
+
+class TestShippedDefaultV2:
+    def _load(self):
+        return load_commands(PROJECT_ROOT / "configs" / "commands.default.yaml")
+
+    def test_the_three_original_bindings_are_byte_identical(self):
+        """Adding features must not quietly change what the app already did."""
+        commands = self._load()
+        assert commands.get(1).action.keys == ("command", "space")
+        assert commands.get(2).action.keys == ("ctrl", "up")
+        assert commands.get(3).action.keys == ("command", "tab")
+        assert commands.get(1).name == "Spotlight"
+        assert commands.get(2).name == "Mission Control"
+        assert commands.get(3).name == "App Switcher"
+
+    def test_the_geometric_gestures_are_bound(self):
+        commands = self._load()
+        assert set(commands.gesture_names()) == {
+            "swipe_left", "swipe_right", "zoom_in", "zoom_out"}
+
+    def test_swipes_map_to_desktop_switching(self):
+        commands = self._load()
+        assert commands.get_named("swipe_left").action.keys == ("ctrl", "left")
+        assert commands.get_named("swipe_right").action.keys == ("ctrl", "right")
+
+    def test_it_declares_version_2(self):
+        assert self._load().version == 2
+
+    def test_a_version_1_config_of_the_old_bindings_still_loads(self, tmp_path):
+        """Anyone still running the previous default must not be broken."""
+        path = tmp_path / "commands.yaml"
+        path.write_text(
+            "version: 1\nneutral_label: 0\ngestures:\n"
+            "  - label: 1\n    name: Spotlight\n"
+            "    action: {type: hotkey, keys: [command, space]}\n"
+            "  - label: 2\n    name: Mission Control\n"
+            "    action: {type: hotkey, keys: [ctrl, up]}\n"
+            "  - label: 3\n    name: App Switcher\n"
+            "    action: {type: hotkey, keys: [command, tab]}\n"
+        )
+        commands = load_commands(path)
+        assert commands.version == 1
+        assert commands.labels() == [1, 2, 3]
+        assert commands.gesture_names() == []

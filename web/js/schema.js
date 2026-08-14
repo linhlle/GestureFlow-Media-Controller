@@ -46,10 +46,24 @@ export const ACTION_TYPES = [
     help: 'Opens an application by name, e.g. Notes.' },
   { id: 'applescript', label: 'AppleScript',
     help: 'Runs an AppleScript snippet through osascript.' },
+  { id: 'url', label: 'Open a link',
+    help: 'Opens a URL in your default browser. http and https only.' },
+  { id: 'text', label: 'Type text',
+    help: 'Types a snippet. Typed rather than pasted, so your clipboard is '
+        + 'left alone.' },
+  { id: 'chord', label: 'Key sequence',
+    help: 'An ordered list of shortcuts, with a pause between each.' },
   { id: 'shell', label: 'Shell command',
     help: 'Runs a command as an argument list. It is executed without a '
         + 'shell, so pipes and redirects do not apply.' },
 ];
+
+// Mirrors URL_SCHEMES / the length caps in commands.py.
+export const URL_SCHEMES = ['http', 'https'];
+export const MAX_URL_LENGTH = 2000;
+export const MAX_TEXT_LENGTH = 500;
+export const MAX_CHORD_STEPS = 12;
+export const MAX_CHORD_DELAY = 2.0;
 
 // Anchored, matching _APP_NAME_RE in commands.py.
 const APP_NAME_RE = /^[A-Za-z0-9 ._+-]{1,64}$/;
@@ -112,6 +126,53 @@ export function validateAction(action, where) {
       const argv = (action.argv || []).filter((a) => a !== '');
       if (argv.length === 0) fail('enter at least the command name');
       if (argv.length > 32) fail('at most 32 arguments');
+      break;
+    }
+    case 'url': {
+      const url = (action.url || '').trim();
+      if (!url) fail('enter a URL');
+      else if (url.length > MAX_URL_LENGTH) {
+        fail(`URL is longer than the ${MAX_URL_LENGTH}-character limit`);
+      } else {
+        const scheme = url.includes(':') ? url.split(':', 1)[0].toLowerCase() : '';
+        if (!URL_SCHEMES.includes(scheme)) {
+          fail('URLs must start with http:// or https://');
+        } else if (/[\r\n]/.test(url)) {
+          fail('a URL cannot contain line breaks');
+        }
+      }
+      break;
+    }
+    case 'text': {
+      const text = action.text || '';
+      if (!text) fail('enter some text');
+      else if (text.length > MAX_TEXT_LENGTH) {
+        fail(`text is longer than the ${MAX_TEXT_LENGTH}-character limit`);
+      } else if (/[\u0000-\u0008\u000b-\u001f]/.test(text)) {
+        fail('text contains control characters that cannot be typed');
+      }
+      break;
+    }
+    case 'chord': {
+      const steps = (action.steps || []).filter(
+        (st) => (st.keys || []).some((k) => k && k.trim()));
+      if (steps.length === 0) fail('add at least one step');
+      if (steps.length > MAX_CHORD_STEPS) {
+        fail(`at most ${MAX_CHORD_STEPS} steps`);
+      }
+      steps.forEach((step, i) => {
+        const keys = (step.keys || []).filter((k) => k && k.trim());
+        if (keys.length > 5) fail(`step ${i + 1}: at most 5 keys`);
+        keys.forEach((k) => {
+          if (!VALID_KEYS.has(k.trim().toLowerCase())) {
+            fail(`step ${i + 1}: "${k}" is not a recognized key name`);
+          }
+        });
+        const delay = step.delay === undefined ? 0.05 : Number(step.delay);
+        if (!Number.isFinite(delay) || delay < 0 || delay > MAX_CHORD_DELAY) {
+          fail(`step ${i + 1}: delay must be between 0 and ${MAX_CHORD_DELAY}s`);
+        }
+      });
       break;
     }
     default:
@@ -209,6 +270,21 @@ function actionToObject(action) {
       return { type: 'applescript', script: action.script };
     case 'shell':
       return { type: 'shell', argv: action.argv.filter((a) => a !== '') };
+    case 'url':
+      return { type: 'url', url: action.url.trim() };
+    case 'text':
+      return { type: 'text', text: action.text };
+    case 'chord':
+      return {
+        type: 'chord',
+        steps: (action.steps || [])
+          .filter((st) => (st.keys || []).some((k) => k && k.trim()))
+          .map((st) => ({
+            keys: st.keys.filter((k) => k && k.trim())
+              .map((k) => k.trim().toLowerCase()),
+            delay: st.delay === undefined ? 0.05 : Number(st.delay),
+          })),
+      };
     default:
       throw new Error(`unknown action type ${action.type}`);
   }

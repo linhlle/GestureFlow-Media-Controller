@@ -185,12 +185,17 @@ def cmd_validate(args) -> int:
         print(f"INVALID: {exc}")
         return 1
 
+    total = len(commands.bindings) + len(commands.named)
     print(f"OK: {path}")
     print(f"  version {commands.version}, neutral label "
-          f"{commands.neutral_label}, {len(commands.bindings)} binding(s)")
+          f"{commands.neutral_label}, {total} binding(s)")
     for label in commands.labels():
         binding = commands.bindings[label]
-        print(f"  {label}: {binding.name:<20} {binding.action.describe()}")
+        print(f"  pose {label}: {binding.name:<20} {binding.action.describe()}")
+    for gesture in commands.gesture_names():
+        binding = commands.named[gesture]
+        print(f"  {gesture:<12} {binding.name:<20} "
+              f"{binding.action.describe()}")
 
     if args.model is not False:
         from gestureflow.app import load_model
