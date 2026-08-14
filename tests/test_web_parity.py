@@ -164,7 +164,54 @@ class TestRecognizerParity:
     def test_fist_suppresses_the_click_fsms(self, src):
         """A fist must resolve to scroll in the browser too, never right-click."""
         assert "isTrueScrollFist(landmarks)" in src
-        assert "fist ? null : landmarks" in src
+        assert "busy ? null : landmarks" in src
+
+    def test_zoom_also_suppresses_the_click_fsms(self, src):
+        """Thumb and index mean one thing at a time in both languages."""
+        assert "fist || this.zoomFSM.isActive" in src
+
+    def test_the_mode_ladder_order_matches_python(self, src):
+        """The browser must resolve an ambiguous hand the same way the app does."""
+        block = re.search(r"function modeOf\(s\) \{(.*?)\n\}", src, re.S).group(1)
+        order = re.findall(r"return '([a-z-]+)'", block)
+        assert order == ["command", "scroll", "swipe", "zoom", "drag",
+                         "left-click", "right-click", "volume", "cursor",
+                         "tracking"]
+
+    def test_the_pause_pose_matches(self, src):
+        """The kill switch must be the same four conditions in both."""
+        assert "export function rockHorns" in src
+        block = re.search(r"export function rockHorns.*?\n\}", src, re.S).group(0)
+        for landmark in ("INDEX_TIP", "INDEX_PIP", "PINKY_TIP", "PINKY_PIP",
+                         "MIDDLE_TIP", "MIDDLE_MCP", "RING_TIP", "RING_MCP"):
+            assert landmark in block, f"rockHorns is missing {landmark}"
+
+    def test_the_new_detector_constants_match(self, src):
+        from gestureflow.config import DEFAULT_CONFIG as cfg
+
+        swipe = re.search(r"swipe:\s*\{(.*?)\}", src, re.S).group(1)
+        assert js_number(swipe, "sensitivity") == cfg.swipe.sensitivity
+        assert js_number(swipe, "minHoldFrames") == cfg.swipe.min_hold_frames
+        assert js_number(swipe, "cooldown") == cfg.swipe.cooldown
+        assert js_number(swipe, "axisRatio") == cfg.swipe.axis_ratio
+        assert js_number(swipe, "releaseRatio") == cfg.swipe.release_ratio
+
+        zoom = re.search(r"zoom:\s*\{(.*?)\}", src, re.S).group(1)
+        assert js_number(zoom, "minSeparation") == cfg.zoom.min_separation
+        assert js_number(zoom, "sensitivity") == cfg.zoom.sensitivity
+        assert js_number(zoom, "minHoldFrames") == cfg.zoom.min_hold_frames
+        assert js_number(zoom, "curlMargin") == cfg.zoom.curl_margin
+        assert js_number(zoom, "minAngleDegrees") == cfg.zoom.min_angle_degrees
+
+        pause = re.search(r"pause:\s*\{(.*?)\}", src, re.S).group(1)
+        assert js_number(pause, "holdSeconds") == cfg.pause.hold_seconds
+        assert js_number(pause, "margin") == cfg.pause.margin
+
+        drag = re.search(r"drag:\s*\{(.*?)\}", src, re.S).group(1)
+        assert js_number(drag, "holdSeconds") == cfg.drag.hold_seconds
+
+        scroll = re.search(r"scroll:\s*\{(.*?)\}", src, re.S).group(1)
+        assert js_number(scroll, "axisRatio") == cfg.scroll.axis_ratio
 
     def test_cursor_is_not_gated_on_thumb_raised(self, src):
         """The regression that disabled cursor mode must not return in JS."""

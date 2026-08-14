@@ -17,7 +17,13 @@ import {
   isTrueScrollFist,
   ClickFSM,
   ScrollFSM,
+  SwipeFSM,
+  ZoomFSM,
+  PauseFSM,
   GestureDebouncer,
+  rockHorns,
+  zoomPose,
+  thumbIndexAngle,
   DEFAULTS,
 } from '../web/js/recognizer.js';
 import { Forest } from '../web/js/forest.js';
@@ -82,6 +88,41 @@ out.debounce = fixtures.debounce.map((seq) => {
     stable: db.stableGesture,
     score: db.voteScore,
   }));
+});
+
+// --- new detectors ----------------------------------------------------------
+out.swipeSequences = (fixtures.swipeSequences || []).map((seq) => {
+  const fsm = new SwipeFSM(DEFAULTS.swipe);
+  return seq.map(([rows, t]) => {
+    fsm.update(toLm(rows), t);
+    return { state: fsm.state, direction: fsm.direction };
+  });
+});
+
+out.zoomSequences = (fixtures.zoomSequences || []).map((seq) => {
+  const fsm = new ZoomFSM(DEFAULTS.zoom);
+  return seq.map(([rows, t]) => {
+    fsm.update(toLm(rows), t);
+    return { state: fsm.state, direction: fsm.direction };
+  });
+});
+
+out.pauseSequences = (fixtures.pauseSequences || []).map((seq) => {
+  const fsm = new PauseFSM(DEFAULTS.pause);
+  return seq.map(([rows, t]) => {
+    fsm.update(toLm(rows), t);
+    return { paused: fsm.paused, toggled: fsm.toggled,
+             progress: Number(fsm.progress.toFixed(6)) };
+  });
+});
+
+out.newPredicates = (fixtures.newPredicates || []).map((rows) => {
+  const lm = toLm(rows);
+  return {
+    rockHorns: rockHorns(lm),
+    zoomPose: zoomPose(lm, DEFAULTS.zoom),
+    thumbIndexAngle: Number(thumbIndexAngle(lm).toFixed(6)),
+  };
 });
 
 // --- forest ----------------------------------------------------------------

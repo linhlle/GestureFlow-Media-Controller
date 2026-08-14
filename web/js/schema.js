@@ -181,24 +181,42 @@ export function validateAction(action, where) {
   return errors;
 }
 
+const NAMED_IDS = NAMED_GESTURES.map((g) => g.id);
+
+/** True when a binding is keyed by geometric gesture rather than model label. */
+export function isNamed(binding) {
+  return typeof binding.gesture === 'string' && binding.gesture !== '';
+}
+
 export function validateConfig(bindings) {
   const errors = [];
   if (bindings.length === 0) errors.push('Add at least one gesture binding.');
 
-  const seen = new Map();
+  const seenLabels = new Map();
+  const seenGestures = new Map();
+
   bindings.forEach((b, i) => {
     const where = b.name ? `"${b.name}"` : `gesture ${i + 1}`;
 
-    if (!Number.isInteger(b.label) || b.label < 0) {
+    if (isNamed(b)) {
+      if (!NAMED_IDS.includes(b.gesture)) {
+        errors.push(`${where}: unknown gesture "${b.gesture}"`);
+      } else if (seenGestures.has(b.gesture)) {
+        errors.push(`${where}: ${b.gesture} is already bound to `
+                    + `"${seenGestures.get(b.gesture)}"`);
+      } else {
+        seenGestures.set(b.gesture, b.name || where);
+      }
+    } else if (!Number.isInteger(b.label) || b.label < 0) {
       errors.push(`${where}: choose a gesture`);
     } else if (b.label === NEUTRAL_LABEL) {
       errors.push(`${where}: Neutral is the "no gesture" state and cannot have `
                   + 'an action bound to it');
-    } else if (seen.has(b.label)) {
+    } else if (seenLabels.has(b.label)) {
       errors.push(`${where}: gesture ${b.label} is already bound to `
-                  + `"${seen.get(b.label)}"`);
+                  + `"${seenLabels.get(b.label)}"`);
     } else {
-      seen.set(b.label, b.name || where);
+      seenLabels.set(b.label, b.name || where);
     }
 
     if (!(b.name || '').trim()) errors.push(`${where}: give it a name`);
@@ -213,7 +231,7 @@ export function validateConfig(bindings) {
 /** Warnings that do not block export but are worth surfacing. */
 export function configWarnings(bindings) {
   const warnings = [];
-  const bound = new Set(bindings.map((b) => b.label));
+  const bound = new Set(bindings.filter((b) => !isNamed(b)).map((b) => b.label));
 
   MODEL_CLASSES.filter((c) => c !== NEUTRAL_LABEL).forEach((c) => {
     if (!bound.has(c)) {
@@ -227,6 +245,7 @@ export function configWarnings(bindings) {
   });
 
   bindings.forEach((b) => {
+    if (isNamed(b)) return;
     if (Number.isInteger(b.label) && !MODEL_CLASSES.includes(b.label)) {
       warnings.push(
         `Gesture ${b.label} is bound, but the shipped model cannot predict it. `
@@ -244,9 +263,16 @@ export function toConfigObject(bindings) {
     neutral_label: NEUTRAL_LABEL,
     gestures: bindings
       .slice()
-      .sort((a, b) => a.label - b.label)
+      .sort((a, b) => {
+        // Pose bindings first, then named gestures, each in a stable order --
+        // matching how CommandSet.to_dict emits them on the Python side.
+        if (isNamed(a) !== isNamed(b)) return isNamed(a) ? 1 : -1;
+        if (isNamed(a)) return a.gesture.localeCompare(b.gesture);
+        return a.label - b.label;
+      })
       .map((b) => {
-        const entry = { label: b.label, name: (b.name || '').trim() };
+        const entry = isNamed(b) ? { gesture: b.gesture } : { label: b.label };
+        entry.name = (b.name || '').trim();
         if ((b.description || '').trim()) entry.description = b.description.trim();
         entry.action = actionToObject(b.action);
         return entry;
@@ -304,13 +330,25 @@ export function toYaml(config) {
   ];
 
   for (const g of config.gestures) {
-    lines.push(`  - label: ${g.label}`);
+    lines.push(g.gesture !== undefined
+      ? `  - gesture: ${g.gesture}`
+      : `  - label: ${g.label}`);
     lines.push(`    name: ${yamlScalar(g.name)}`);
     if (g.description) lines.push(`    description: ${yamlScalar(g.description)}`);
     lines.push('    action:');
     lines.push(`      type: ${g.action.type}`);
 
-    if (g.action.type === 'hotkey') {
+    if (g.action.type === 'chord') {
+      lines.push('      steps:');
+      for (const step of g.action.steps) {
+        lines.push(`        - keys: [${step.keys.map(yamlScalar).join(', ')}]`);
+        lines.push(`          delay: ${step.delay}`);
+      }
+    } else if (g.action.type === 'url') {
+      lines.push(`      url: ${yamlScalar(g.action.url)}`);
+    } else if (g.action.type === 'text') {
+      lines.push(`      text: ${yamlScalar(g.action.text)}`);
+    } else if (g.action.type === 'hotkey') {
       lines.push(`      keys: [${g.action.keys.map(yamlScalar).join(', ')}]`);
     } else if (g.action.type === 'keypress') {
       lines.push(`      key: ${yamlScalar(g.action.key)}`);
@@ -356,6 +394,7 @@ export function fromConfigObject(raw) {
 
   return raw.gestures.map((g) => ({
     label: g.label,
+    gesture: g.gesture,
     name: g.name || '',
     description: g.description || '',
     action: actionFromObject(g.action || {}),
@@ -371,6 +410,9 @@ function actionFromObject(a) {
     app: '',
     script: '',
     argv: [''],
+    url: '',
+    text: '',
+    steps: [{ keys: ['command', ''], delay: 0.05 }],
   };
   if (a.type === 'hotkey') base.keys = (a.keys || []).slice();
   if (a.type === 'keypress') base.key = a.key || '';
@@ -378,5 +420,11 @@ function actionFromObject(a) {
   if (a.type === 'launch') base.app = a.app || '';
   if (a.type === 'applescript') base.script = a.script || '';
   if (a.type === 'shell') base.argv = (a.argv || []).slice();
+  if (a.type === 'url') base.url = a.url || '';
+  if (a.type === 'text') base.text = a.text || '';
+  if (a.type === 'chord') base.steps = (a.steps || []).map((st) => ({
+    keys: (st.keys || []).slice(),
+    delay: st.delay === undefined ? 0.05 : st.delay,
+  }));
   return base;
 }

@@ -4,7 +4,7 @@ Everything in this list requires a person at the keyboard. macOS permission
 grants cannot be scripted by design, deploys need account credentials, and
 retraining needs someone to perform gestures at a camera.
 
-Work through it in order. Steps 1–5 get the desktop app running; 6–8 are
+Work through it in order. Steps 1–5 get the desktop app running; the rest are
 optional.
 
 ---
@@ -83,6 +83,41 @@ Check each mode works:
   SCROLL, then move your whole hand up and down → scrolling. The HUD must never
   read RIGHT CLICK while your fist is closed.
 - Thumb up, index down, move vertically → volume
+- Pinch and **keep holding** for about half a second, move, then release →
+  press, drag and drop
+- Closed fist, **flick sideways** → switches desktop
+- Index up with the thumb out sideways, then spread or close them → zoom
+- **Index and pinky up, middle and ring down, hold ~1.5 s** → the window says
+  PAUSED and nothing reaches your Mac. Hold it again to resume.
+
+If a gesture misfires, the pause switch is the fastest way to stop everything.
+
+---
+
+## 4b. Calibrate — OPTIONAL but recommended
+
+```bash
+gestureflow calibrate
+```
+
+Four short recordings: pinch closed, hand open, middle-finger pinch, hand open
+again. It fits the pinch thresholds to your hand and writes
+`~/.gestureflow/calibration.json`.
+
+Thresholds are already relative to your hand's size, which handles sitting
+closer to or further from the camera. What that cannot handle is that hands
+differ from each other — so **if clicking feels unreliable while poses work
+fine, run this first.**
+
+Check what is in effect, or go back to the shipped defaults:
+
+```bash
+gestureflow calibration          # show current values
+rm ~/.gestureflow/calibration.json   # revert
+```
+
+Nothing here can break the app: a missing, corrupt or nonsensical calibration
+file falls back to the defaults with a note on stdout.
 
 ---
 
@@ -105,15 +140,68 @@ gestureflow validate
 The app re-reads the file while running, so edits apply without a restart. A
 config that fails to parse is ignored and the previous one keeps running.
 
-**Two extra permissions, only if your config uses them:**
+The default config binds the three trained poses plus the four geometric
+gestures (swipe left/right, zoom in/out). Turning one off is as simple as
+deleting its entry.
+
+**Extra permissions, only if you use the features that need them:**
 
 - **AppleScript actions** — the first time one runs, macOS asks to allow
   controlling System Events. Accept it. Later, under **Privacy & Security →
   Automation**.
+- **App-context profiles** (step 5b) — reading the frontmost app uses the same
+  **Automation** permission. Declining it is not fatal: the default profile
+  applies and everything else carries on.
 - **Screenshot shortcuts** — need **Privacy & Security → Screen Recording**,
   and that one requires a full restart of the application.
 
-Neither is needed by the default config.
+None is needed by the default config.
+
+---
+
+## 5b. App-context profiles — OPTIONAL
+
+Make a gesture mean different things in different apps. Add a `profiles:` block
+to `~/.gestureflow/commands.yaml`:
+
+```yaml
+profiles:
+  - name: presentation
+    match:
+      apps: [Keynote, Microsoft PowerPoint]
+    gestures:
+      - gesture: swipe_right
+        name: Next slide
+        action: { type: keypress, key: right }
+      - gesture: swipe_left
+        name: Previous slide
+        action: { type: keypress, key: left }
+```
+
+A profile lists only what it changes; the rest keeps working as it does by
+default. The first matching profile wins, so precedence reads top to bottom.
+
+**This is the one new feature that needs a permission.** The first time the app
+asks which application is frontmost, macOS prompts for Automation access. Accept
+it. If you decline, the default profile applies and the app prints one line
+saying so — nothing else changes.
+
+Verify it is working by switching apps with `gestureflow run` in the foreground;
+the terminal prints `[controller] Profile: presentation (Keynote)` on each
+change.
+
+---
+
+## 5c. Dwell click — OPTIONAL, accessibility
+
+Off by default, because when it is on, resting the pointer clicks. For users who
+cannot pinch:
+
+```bash
+DWELL_ENABLED=1 gestureflow run
+```
+
+Tune with `DWELL_SECONDS` (default 1.0) and `DWELL_RADIUS_PX` (default 40).
 
 ---
 
@@ -255,3 +343,9 @@ a generalization estimate.
 | Volume changes when you meant to point | Tuck your thumb; a raised thumb means volume mode |
 | Poses recognized unreliably | Retrain on your own hands (step 8) |
 | `gestureflow: command not found` | The venv is not active, or `pip install -e .` was not run |
+| Clicking is unreliable but poses are fine | Run `gestureflow calibrate` (step 4b) |
+| Nothing responds, window says PAUSED | Kill switch is on. Hold index + pinky up, middle + ring down, ~1.5 s |
+| A long pinch drags when you wanted a click | Release sooner, or raise `DRAG_HOLD_SECONDS` |
+| Swiping also scrolls | Flick more horizontally; near-diagonal motion deliberately fires neither |
+| Profiles never switch | Automation permission declined — see step 5b |
+| Zoom fires Spotlight instead | A wide L-shape overlaps the trained L-Shape pose; rebind one of them |

@@ -24,8 +24,19 @@ export const DEFAULTS = {
   rightClick: { close: 0.22, open: 0.38, minHoldFrames: 5, cooldown: 0.6 },
   scroll: {
     sensitivity: 0.05, minHoldFrames: 5, cooldown: 0.05,
-    step: 2, velocityExponent: 1.6,
+    step: 2, velocityExponent: 1.6, axisRatio: 1.0,
   },
+  swipe: {
+    enabled: true, sensitivity: 0.16, minHoldFrames: 3,
+    cooldown: 0.6, axisRatio: 1.5, releaseRatio: 0.5,
+  },
+  zoom: {
+    enabled: true, minSeparation: 0.55, sensitivity: 0.06,
+    minHoldFrames: 4, cooldown: 0.12, curlMargin: 0.12,
+    minAngleDegrees: 65.0,
+  },
+  pause: { enabled: true, holdSeconds: 1.5, margin: 0.25 },
+  drag: { enabled: true, holdSeconds: 0.55 },
 };
 
 // Landmark indices (MediaPipe hand model).
@@ -34,7 +45,7 @@ export const LM = {
   INDEX_MCP: 5, INDEX_PIP: 6, INDEX_TIP: 8,
   MIDDLE_MCP: 9, MIDDLE_TIP: 12,
   RING_MCP: 13, RING_TIP: 16,
-  PINKY_MCP: 17, PINKY_TIP: 20,
+  PINKY_MCP: 17, PINKY_PIP: 18, PINKY_TIP: 20,
 };
 
 // ---------------------------------------------------------------------------
@@ -148,6 +159,80 @@ export function strictFist(landmarks, threshold = 0.19) {
   return curled === 4;
 }
 
+/**
+ * Index and pinky up, middle and ring down -- "rock horns", the pause pose.
+ * Mirrors rock_horns() in gestureflow/pause_fsm.py.
+ */
+export function rockHorns(landmarks, margin = 0.25) {
+  const scale = handScale(landmarks);
+  const up = margin * scale;
+  const down = margin * 0.6 * scale;
+
+  return landmarks[LM.INDEX_TIP].y < landmarks[LM.INDEX_PIP].y - up
+      && landmarks[LM.PINKY_TIP].y < landmarks[LM.PINKY_PIP].y - up
+      && landmarks[LM.MIDDLE_TIP].y > landmarks[LM.MIDDLE_MCP].y + down
+      && landmarks[LM.RING_TIP].y > landmarks[LM.RING_MCP].y + down;
+}
+
+/** Scroll's side of the axis arbitration: vertical at least ties. */
+export function verticalDominates(vx, vy, ratio = 1.0) {
+  return Math.abs(vy) >= ratio * Math.abs(vx);
+}
+
+/** Swipe's side: horizontal has to win clearly, not just edge ahead. */
+export function horizontalDominates(vx, vy, ratio = 1.5) {
+  return Math.abs(vx) > ratio * Math.abs(vy);
+}
+
+/** Thumb-to-index distance in hand-widths. Mirrors _spread in zoom_fsm.py. */
+export function thumbIndexSpread(landmarks) {
+  const a = landmarks[LM.THUMB_TIP];
+  const b = landmarks[LM.INDEX_TIP];
+  const raw = Math.sqrt(
+    (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2,
+  );
+  return raw / handScale(landmarks);
+}
+
+/**
+ * Angle in degrees between thumb and index.
+ *
+ * This is what separates a zoom pose from ordinary pointing: a pointing hand
+ * holds the thumb away from the index too, so distance alone reads a cursor
+ * gesture as a zoom.
+ */
+export function thumbIndexAngle(landmarks) {
+  const tx = landmarks[LM.THUMB_TIP].x - landmarks[LM.THUMB_MCP].x;
+  const ty = landmarks[LM.THUMB_TIP].y - landmarks[LM.THUMB_MCP].y;
+  const ix = landmarks[LM.INDEX_TIP].x - landmarks[LM.INDEX_MCP].x;
+  const iy = landmarks[LM.INDEX_TIP].y - landmarks[LM.INDEX_MCP].y;
+
+  const tn = Math.hypot(tx, ty);
+  const inn = Math.hypot(ix, iy);
+  if (tn === 0 || inn === 0) return 0;
+
+  let cosine = (tx * ix + ty * iy) / (tn * inn);
+  cosine = Math.max(-1, Math.min(1, cosine));
+  return (Math.acos(cosine) * 180) / Math.PI;
+}
+
+/** Mirrors zoom_pose() in gestureflow/zoom_fsm.py. */
+export function zoomPose(landmarks, cfg = DEFAULTS.zoom) {
+  if (isDegenerate(landmarks)) return false;
+  const scale = handScale(landmarks);
+  const curl = cfg.curlMargin * scale;
+
+  const indexOut = landmarks[LM.INDEX_TIP].y < landmarks[LM.INDEX_PIP].y;
+  const othersCurled =
+    landmarks[LM.MIDDLE_TIP].y > landmarks[LM.MIDDLE_MCP].y + curl
+    && landmarks[LM.RING_TIP].y > landmarks[LM.RING_MCP].y + curl
+    && landmarks[LM.PINKY_TIP].y > landmarks[LM.PINKY_MCP].y + curl;
+
+  return indexOut && othersCurled
+      && thumbIndexSpread(landmarks) > cfg.minSeparation
+      && thumbIndexAngle(landmarks) >= cfg.minAngleDegrees;
+}
+
 /** Three exclusion gates, in the same priority order as the Python version. */
 export function isTrueScrollFist(landmarks) {
   if (isDegenerate(landmarks)) return false;
@@ -160,16 +245,24 @@ export function isTrueScrollFist(landmarks) {
 // Click FSM
 // ---------------------------------------------------------------------------
 
-export const ClickState = { IDLE: 'IDLE', PRESSING: 'PRESSING', HELD: 'HELD' };
+export const ClickState = {
+  IDLE: 'IDLE', PRESSING: 'PRESSING', HELD: 'HELD', DRAGGING: 'DRAGGING',
+};
 
 export class ClickFSM {
-  constructor(config = DEFAULTS.click, lmA = LM.THUMB_TIP, lmB = LM.INDEX_TIP) {
+  constructor(config = DEFAULTS.click, lmA = LM.THUMB_TIP, lmB = LM.INDEX_TIP,
+              drag = null) {
     this.cfg = config;
+    // Drag is opt-in per FSM: only the left pinch drags, matching Python.
+    this.drag = drag;
     this.lmA = lmA;
     this.lmB = lmB;
     this.state = ClickState.IDLE;
     this.holdFrames = 0;
     this.clickFired = false;
+    this.dragStarted = false;
+    this.dragEnded = false;
+    this.heldSince = Infinity;
     // -Infinity, matching the Python fix: a 0 seed would suppress every click
     // in the first cooldown seconds after load.
     this.lastClickTime = -Infinity;
@@ -177,7 +270,11 @@ export class ClickFSM {
 
   update(landmarks, now) {
     this.clickFired = false;
+    this.dragStarted = false;
+    this.dragEnded = false;
     if (!landmarks || isDegenerate(landmarks)) {
+      // A hand leaving frame mid-drag must still release the button.
+      if (this.state === ClickState.DRAGGING) this.dragEnded = true;
       this.reset();
       return;
     }
@@ -200,7 +297,10 @@ export class ClickFSM {
     } else if (this.state === ClickState.PRESSING) {
       if (dist < cfg.close) {
         this.holdFrames += 1;
-        if (this.holdFrames >= cfg.minHoldFrames) this.state = ClickState.HELD;
+        if (this.holdFrames >= cfg.minHoldFrames) {
+          this.state = ClickState.HELD;
+          this.heldSince = now;
+        }
       } else {
         this.reset();
       }
@@ -212,17 +312,38 @@ export class ClickFSM {
           this.lastClickTime = now;
         }
         this.reset();
+      } else if (this.dragDue(now)) {
+        this.state = ClickState.DRAGGING;
+        this.dragStarted = true;
+      }
+    } else if (this.state === ClickState.DRAGGING) {
+      if (dist > cfg.open) {
+        this.dragEnded = true;
+        this.reset();
       }
     }
+  }
+
+  dragDue(now) {
+    if (!this.drag || !this.drag.enabled) return false;
+    if (this.heldSince === Infinity) return false;
+    return now - this.heldSince >= this.drag.holdSeconds;
+  }
+
+  get dragging() {
+    return this.state === ClickState.DRAGGING;
   }
 
   reset() {
     this.state = ClickState.IDLE;
     this.holdFrames = 0;
+    this.heldSince = Infinity;
   }
 
   get isActive() {
-    return this.state === ClickState.PRESSING || this.state === ClickState.HELD;
+    return this.state === ClickState.PRESSING
+        || this.state === ClickState.HELD
+        || this.state === ClickState.DRAGGING;
   }
 
   get holdProgress() {
@@ -260,6 +381,7 @@ export class ScrollFSM {
     this.state = ScrollState.IDLE;
     this.holdFrames = 0;
     this.prevWristY = 0;
+    this.prevWristX = 0;
     this.lastScrollTime = -Infinity;
     this.scrollDelta = 0;
   }
@@ -278,15 +400,17 @@ export class ScrollFSM {
       landmarks[LM.WRIST].y,
       now,
       handScale(landmarks),
+      landmarks[LM.WRIST].x,
     );
   }
 
-  transition(fist, wristY, now, scale = 1.0) {
+  transition(fist, wristY, now, scale = 1.0, wristX = 0.0) {
     const cfg = this.cfg;
     if (this.state === ScrollState.IDLE) {
       if (fist) {
         this.holdFrames = 1;
         this.prevWristY = wristY;
+        this.prevWristX = wristX;
         this.state = ScrollState.FIST_DETECTED;
       }
     } else if (this.state === ScrollState.FIST_DETECTED) {
@@ -294,6 +418,7 @@ export class ScrollFSM {
         this.holdFrames += 1;
         if (this.holdFrames >= cfg.minHoldFrames) {
           this.prevWristY = wristY;
+          this.prevWristX = wristX;
           this.state = ScrollState.SCROLLING;
         }
       } else {
@@ -306,12 +431,18 @@ export class ScrollFSM {
       }
       if (now - this.lastScrollTime < cfg.cooldown) {
         this.prevWristY = wristY;
+        this.prevWristX = wristX;
         return;
       }
       // Hand-widths per frame, so the same physical movement scrolls the
       // same amount at any distance from the camera.
       const velocity = (this.prevWristY - wristY) / scale;
+      const horizontal = (wristX - this.prevWristX) / scale;
       this.prevWristY = wristY;
+      this.prevWristX = wristX;
+
+      // A mostly-sideways movement is a swipe, not a scroll.
+      if (!verticalDominates(horizontal, velocity, cfg.axisRatio)) return;
       if (Math.abs(velocity) > cfg.sensitivity) {
         const clicks = velocityToClicks(velocity, cfg);
         if (clicks !== 0) {
@@ -326,11 +457,222 @@ export class ScrollFSM {
     this.state = ScrollState.IDLE;
     this.holdFrames = 0;
     this.prevWristY = 0;
+    this.prevWristX = 0;
   }
 
   get isActive() {
     return this.state === ScrollState.FIST_DETECTED
         || this.state === ScrollState.SCROLLING;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Swipe FSM  <- gestureflow/swipe_fsm.py
+// ---------------------------------------------------------------------------
+
+export const SwipeState = {
+  IDLE: 'IDLE', ARMED: 'ARMED', COOLING: 'COOLING',
+};
+
+export class SwipeFSM {
+  constructor(config = DEFAULTS.swipe) {
+    this.cfg = config;
+    this.state = SwipeState.IDLE;
+    this.holdFrames = 0;
+    this.prevX = 0;
+    this.prevY = 0;
+    this.havePrev = false;
+    this.lastFire = -Infinity;
+    this.direction = null;
+  }
+
+  get fired() { return this.direction !== null; }
+
+  get isArmed() {
+    return this.state === SwipeState.ARMED || this.state === SwipeState.COOLING;
+  }
+
+  update(landmarks, now) {
+    this.direction = null;
+
+    if (!this.cfg.enabled || !landmarks || !isTrueScrollFist(landmarks)) {
+      this.reset();
+      return;
+    }
+
+    const scale = handScale(landmarks);
+    const x = landmarks[LM.WRIST].x;
+    const y = landmarks[LM.WRIST].y;
+
+    if (this.state === SwipeState.IDLE) {
+      this.state = SwipeState.ARMED;
+      this.holdFrames = 1;
+      this.remember(x, y);
+      return;
+    }
+
+    const vx = this.havePrev ? (x - this.prevX) / scale : 0;
+    const vy = this.havePrev ? (y - this.prevY) / scale : 0;
+    this.remember(x, y);
+    const speed = Math.abs(vx);
+
+    if (this.state === SwipeState.COOLING) {
+      // One flick is one fire, however many frames it spans.
+      if (speed < this.cfg.sensitivity * this.cfg.releaseRatio) {
+        this.state = SwipeState.ARMED;
+      }
+      return;
+    }
+
+    this.holdFrames += 1;
+    if (this.holdFrames < this.cfg.minHoldFrames) return;
+    if (now - this.lastFire < this.cfg.cooldown) return;
+    if (speed <= this.cfg.sensitivity) return;
+    if (!horizontalDominates(vx, vy, this.cfg.axisRatio)) return;
+
+    this.direction = vx > 0 ? 'right' : 'left';
+    this.lastFire = now;
+    this.state = SwipeState.COOLING;
+  }
+
+  remember(x, y) {
+    this.prevX = x;
+    this.prevY = y;
+    this.havePrev = true;
+  }
+
+  reset() {
+    this.state = SwipeState.IDLE;
+    this.holdFrames = 0;
+    this.havePrev = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Zoom FSM  <- gestureflow/zoom_fsm.py
+// ---------------------------------------------------------------------------
+
+export const ZoomState = {
+  IDLE: 'IDLE', ARMING: 'ARMING', ZOOMING: 'ZOOMING',
+};
+
+export class ZoomFSM {
+  constructor(config = DEFAULTS.zoom) {
+    this.cfg = config;
+    this.state = ZoomState.IDLE;
+    this.holdFrames = 0;
+    this.prevSpread = 0;
+    this.lastFire = -Infinity;
+    this.direction = null;
+  }
+
+  get fired() { return this.direction !== null; }
+
+  get isActive() {
+    return this.state === ZoomState.ARMING || this.state === ZoomState.ZOOMING;
+  }
+
+  update(landmarks, now) {
+    this.direction = null;
+
+    if (!this.cfg.enabled || !landmarks || !zoomPose(landmarks, this.cfg)) {
+      this.reset();
+      return;
+    }
+
+    const spread = thumbIndexSpread(landmarks);
+
+    if (this.state === ZoomState.IDLE) {
+      this.state = ZoomState.ARMING;
+      this.holdFrames = 1;
+      this.prevSpread = spread;
+      return;
+    }
+
+    if (this.state === ZoomState.ARMING) {
+      this.holdFrames += 1;
+      this.prevSpread = spread;
+      if (this.holdFrames >= this.cfg.minHoldFrames) {
+        this.state = ZoomState.ZOOMING;
+      }
+      return;
+    }
+
+    if (now - this.lastFire < this.cfg.cooldown) {
+      this.prevSpread = spread;
+      return;
+    }
+
+    const delta = spread - this.prevSpread;
+    this.prevSpread = spread;
+    if (Math.abs(delta) <= this.cfg.sensitivity) return;
+
+    this.direction = delta > 0 ? 'in' : 'out';
+    this.lastFire = now;
+  }
+
+  reset() {
+    this.state = ZoomState.IDLE;
+    this.holdFrames = 0;
+    this.prevSpread = 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pause FSM  <- gestureflow/pause_fsm.py
+// ---------------------------------------------------------------------------
+
+export const PauseState = {
+  IDLE: 'IDLE', HOLDING: 'HOLDING', LATCHED: 'LATCHED',
+};
+
+export class PauseFSM {
+  constructor(config = DEFAULTS.pause) {
+    this.cfg = config;
+    this.state = PauseState.IDLE;
+    this.holdStarted = Infinity;
+    this.paused = false;
+    this.toggled = false;
+    this.progress = 0;
+  }
+
+  update(landmarks, now) {
+    this.toggled = false;
+    if (!this.cfg.enabled) {
+      this.progress = 0;
+      return;
+    }
+
+    const present = !!landmarks && rockHorns(landmarks, this.cfg.margin);
+
+    if (!present) {
+      // A broken pose resets the timer rather than pausing it.
+      this.state = PauseState.IDLE;
+      this.holdStarted = Infinity;
+      this.progress = 0;
+      return;
+    }
+
+    if (this.state === PauseState.LATCHED) {
+      this.progress = 1;
+      return;
+    }
+
+    if (this.state !== PauseState.HOLDING) {
+      this.state = PauseState.HOLDING;
+      this.holdStarted = now;
+    }
+
+    const held = now - this.holdStarted;
+    const holdFor = this.cfg.holdSeconds;
+    this.progress = holdFor <= 0 ? 1 : Math.min(1, held / holdFor);
+
+    if (held >= holdFor) {
+      this.paused = !this.paused;
+      this.toggled = true;
+      this.state = PauseState.LATCHED;
+      this.progress = 1;
+    }
   }
 }
 
@@ -392,19 +734,44 @@ export class Recognizer {
     this.forest = forest;
     this.config = config;
     this.debouncer = new GestureDebouncer(config);
-    this.leftFSM = new ClickFSM(config.click, LM.THUMB_TIP, LM.INDEX_TIP);
+    this.leftFSM = new ClickFSM(config.click, LM.THUMB_TIP, LM.INDEX_TIP,
+                                config.drag);
     this.rightFSM = new ClickFSM(config.rightClick, LM.MIDDLE_TIP, LM.INDEX_TIP);
     this.scrollFSM = new ScrollFSM(config.scroll);
+    this.swipeFSM = new SwipeFSM(config.swipe);
+    this.zoomFSM = new ZoomFSM(config.zoom);
+    this.pauseFSM = new PauseFSM(config.pause);
   }
 
   /** Mirrors InferenceThread._process plus GestureRouter's mode predicates. */
   process(landmarks, now) {
+    // Pause runs above the classifier, matching Python: the kill switch has to
+    // work even if the model reads the pose as something else.
+    this.pauseFSM.update(landmarks, now);
+
     if (!landmarks) {
       this.debouncer.update(0, 1.0, now);
       this.leftFSM.update(null, now);
       this.rightFSM.update(null, now);
       this.scrollFSM.update(null, now);
+      this.swipeFSM.update(null, now);
+      this.zoomFSM.update(null, now);
       return this.emptyResult();
+    }
+
+    if (this.pauseFSM.paused) {
+      this.leftFSM.update(null, now);
+      this.rightFSM.update(null, now);
+      this.scrollFSM.update(null, now);
+      this.swipeFSM.update(null, now);
+      this.zoomFSM.update(null, now);
+      return {
+        ...this.emptyResult(),
+        landmarks,
+        paused: true,
+        pauseProgress: this.pauseFSM.progress,
+        mode: 'paused',
+      };
     }
 
     const features = normalizeLandmarks(landmarks);
@@ -426,14 +793,19 @@ export class Recognizer {
       this.leftFSM.update(null, now);
       this.rightFSM.update(null, now);
       this.scrollFSM.update(null, now);
+      this.swipeFSM.update(null, now);
+      this.zoomFSM.update(null, now);
     } else {
-      // A fist resolves to scroll and nothing else. In a closed hand the
-      // middle and index fingertips sit side by side, which the right-click
-      // pinch would otherwise read as a deliberate touch.
+      // A fist resolves to scroll or swipe and nothing else, and a zoom pose
+      // owns thumb and index outright. Both decisions are made here, once, so
+      // the click FSMs never have to be consistent with a second threshold.
       const fist = isTrueScrollFist(landmarks);
-      this.leftFSM.update(fist ? null : landmarks, now);
-      this.rightFSM.update(fist ? null : landmarks, now);
+      this.zoomFSM.update(landmarks, now);
+      const busy = fist || this.zoomFSM.isActive;
+      this.leftFSM.update(busy ? null : landmarks, now);
+      this.rightFSM.update(busy ? null : landmarks, now);
       this.scrollFSM.update(landmarks, now);
+      this.swipeFSM.update(landmarks, now);
     }
 
     const idxExt = indexExtended(landmarks);
@@ -468,13 +840,26 @@ export class Recognizer {
       rightHoldProgress: this.rightFSM.holdProgress,
       scrollDelta: this.scrollFSM.scrollDelta,
       scrollActive,
+      swipeDirection: this.swipeFSM.direction,
+      swipeArmed,
+      zoomDirection: this.zoomFSM.direction,
+      zoomActive,
+      dragging: this.leftFSM.dragging,
+      dragStarted: this.leftFSM.dragStarted,
+      dragEnded: this.leftFSM.dragEnded,
+      paused: false,
+      pauseProgress: this.pauseFSM.progress,
       indexExtended: idxExt,
       thumbRaised: thumbUp,
       cursorActive,
       volumeActive,
-      mode: modeOf({ suppressed, stable, scrollActive, cursorActive, volumeActive,
-                     leftActive: this.leftFSM.isActive,
-                     rightActive: this.rightFSM.isActive }),
+      mode: modeOf({
+        suppressed, stable, scrollActive, cursorActive, volumeActive,
+        swipeArmed, zoomActive,
+        dragging: this.leftFSM.dragging,
+        leftActive: this.leftFSM.isActive,
+        rightActive: this.rightFSM.isActive,
+      }),
     };
   }
 
@@ -487,16 +872,24 @@ export class Recognizer {
       rightFsmState: ClickState.IDLE, rightHoldProgress: 0,
       scrollDelta: 0, scrollActive: false, indexExtended: false,
       thumbRaised: false, cursorActive: false, volumeActive: false,
+      swipeDirection: null, swipeArmed: false,
+      zoomDirection: null, zoomActive: false,
+      dragging: false, dragStarted: false, dragEnded: false,
+      paused: false, pauseProgress: 0,
       mode: 'none',
     };
   }
 }
 
+/** Same precedence ladder as GestureRouter.active_mode in Python. */
 function modeOf(s) {
   if (s.stable !== 0 || s.suppressed) return 'command';
+  if (s.scrollActive) return 'scroll';
+  if (s.swipeArmed) return 'swipe';
+  if (s.zoomActive) return 'zoom';
+  if (s.dragging) return 'drag';
   if (s.leftActive) return 'left-click';
   if (s.rightActive) return 'right-click';
-  if (s.scrollActive) return 'scroll';
   if (s.volumeActive) return 'volume';
   if (s.cursorActive) return 'cursor';
   return 'tracking';

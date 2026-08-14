@@ -303,3 +303,172 @@ class _SeqClock:
 
     def __call__(self) -> float:
         return self.now
+
+
+# ---------------------------------------------------------------------------
+# Detectors added in the feature round
+# ---------------------------------------------------------------------------
+
+def horns_rows(wrist_y: float = 0.75):
+    """Index and pinky up, middle and ring down."""
+    scale = 0.20
+    knuckle = wrist_y - scale
+    rows = [[0.5, wrist_y - 0.10, 0.0] for _ in range(21)]
+    rows[0] = [0.5, wrist_y, 0.0]
+    rows[9] = [0.52, knuckle, 0.0]
+    rows[6] = [0.45, knuckle, 0.0]
+    rows[8] = [0.45, knuckle - 0.12, 0.0]
+    rows[18] = [0.62, knuckle, 0.0]
+    rows[20] = [0.62, knuckle - 0.12, 0.0]
+    rows[12] = [0.52, knuckle + 0.10, 0.0]
+    rows[13] = [0.57, knuckle, 0.0]
+    rows[16] = [0.57, knuckle + 0.10, 0.0]
+    return rows
+
+
+def zoom_rows(spread: float = 0.20):
+    scale = 0.20
+    knuckle = 0.75 - scale
+    rows = [[0.5, 0.65, 0.0] for _ in range(21)]
+    rows[0] = [0.5, 0.75, 0.0]
+    rows[9] = [0.56, knuckle, 0.0]
+    rows[5] = [0.50, knuckle, 0.0]
+    rows[6] = [0.50, knuckle - 0.06, 0.0]
+    rows[8] = [0.50, knuckle - 0.16, 0.0]
+    rows[2] = [0.52, knuckle + 0.06, 0.0]
+    rows[3] = [0.52 + spread * 0.4, knuckle + 0.05, 0.0]
+    rows[4] = [0.52 + spread, knuckle + 0.04, 0.0]
+    for tip, mcp in ((12, 9), (16, 13), (20, 17)):
+        rows[mcp] = [0.56, knuckle, 0.0]
+        rows[tip] = [0.56, knuckle + 0.08, 0.0]
+    return rows
+
+
+def sliding_fist_rows(wrist_x: float, wrist_y: float = 0.75):
+    scale = 0.20
+    dx = wrist_x - 0.5
+    knuckle = wrist_y - scale
+    rows = [[0.5 + dx, wrist_y - 0.10, 0.0] for _ in range(21)]
+    rows[0] = [wrist_x, wrist_y, 0.0]
+    for tip, pip, mcp in ((8, 6, 5), (12, 10, 9), (16, 14, 13), (20, 18, 17)):
+        rows[mcp] = [0.5 + dx, knuckle, 0.0]
+        rows[pip] = [0.5 + dx, knuckle + 0.03, 0.0]
+        rows[tip] = [0.5 + dx, knuckle + 0.08, 0.0]
+    rows[9] = [0.5 + dx, knuckle, 0.0]
+    rows[2] = [0.5 + dx, knuckle + 0.10, 0.0]
+    rows[3] = [0.5 + dx, knuckle + 0.07, 0.0]
+    rows[4] = [0.5 + dx, knuckle + 0.05, 0.0]
+    return rows
+
+
+@pytest.fixture(scope="module")
+def new_parity(tmp_path_factory):
+    fixtures = {
+        "normalize": [], "velocity": [], "predicates": [],
+        "clickSequences": [], "scrollSequences": [], "debounce": [],
+        "forestPath": None, "forestSamples": None,
+        "swipeSequences": [
+            [[sliding_fist_rows(0.5 + i * 0.04), i / 30.0] for i in range(30)],
+            [[sliding_fist_rows(0.5 - i * 0.04), i / 30.0] for i in range(30)],
+            [[sliding_fist_rows(0.5, 0.75 - i * 0.015), i / 30.0]
+             for i in range(30)],
+        ],
+        "zoomSequences": [
+            [[zoom_rows(0.25 + i * 0.03), i / 30.0] for i in range(20)],
+            [[zoom_rows(0.85 - i * 0.03), i / 30.0] for i in range(20)],
+        ],
+        "pauseSequences": [
+            [[horns_rows(), i / 30.0] for i in range(60)],
+            [[horns_rows() if i % 20 != 19 else zoom_rows(), i / 30.0]
+             for i in range(60)],
+        ],
+        "newPredicates": [
+            horns_rows(), zoom_rows(0.25), zoom_rows(0.05),
+            sliding_fist_rows(0.5),
+        ],
+    }
+    path = tmp_path_factory.mktemp("parity2") / "fixtures.json"
+    path.write_text(json.dumps(fixtures))
+    proc = subprocess.run([NODE, str(HARNESS), str(path)],
+                          capture_output=True, text=True,
+                          cwd=str(PROJECT_ROOT), timeout=120)
+    if proc.returncode != 0:
+        pytest.fail(f"parity harness failed:\n{proc.stderr}")
+    return fixtures, json.loads(proc.stdout)
+
+
+class TestNewPredicateParity:
+    def test_rock_horns_and_zoom_pose_match(self, new_parity):
+        from gestureflow.config import DEFAULT_CONFIG
+        from gestureflow.pause_fsm import rock_horns
+        from gestureflow.zoom_fsm import thumb_index_angle, zoom_pose
+
+        fixtures, js = new_parity
+        for i, rows in enumerate(fixtures["newPredicates"]):
+            landmarks = lm(rows)
+            got = js["newPredicates"][i]
+            assert got["rockHorns"] == rock_horns(landmarks), i
+            assert got["zoomPose"] == zoom_pose(landmarks,
+                                                DEFAULT_CONFIG.zoom), i
+            assert got["thumbIndexAngle"] == pytest.approx(
+                thumb_index_angle(landmarks), abs=1e-5), i
+
+
+class TestSwipeParity:
+    def test_states_and_directions_match(self, new_parity):
+        from gestureflow.config import DEFAULT_CONFIG
+        from gestureflow.swipe_fsm import SwipeFSM
+
+        fixtures, js = new_parity
+        for s, sequence in enumerate(fixtures["swipeSequences"]):
+            clock = _SeqClock()
+            fsm = SwipeFSM(DEFAULT_CONFIG.swipe, clock=clock)
+            for i, (rows, t) in enumerate(sequence):
+                clock.now = t
+                fsm.update(lm(rows))
+                got = js["swipeSequences"][s][i]
+                assert got["state"] == fsm.state.name, (
+                    f"sequence {s} frame {i}: {got['state']} vs {fsm.state.name}"
+                )
+                assert got["direction"] == fsm.direction, (
+                    f"sequence {s} frame {i}: direction differs"
+                )
+
+
+class TestZoomParity:
+    def test_states_and_directions_match(self, new_parity):
+        from gestureflow.config import DEFAULT_CONFIG
+        from gestureflow.zoom_fsm import ZoomFSM
+
+        fixtures, js = new_parity
+        for s, sequence in enumerate(fixtures["zoomSequences"]):
+            clock = _SeqClock()
+            fsm = ZoomFSM(DEFAULT_CONFIG.zoom, clock=clock)
+            for i, (rows, t) in enumerate(sequence):
+                clock.now = t
+                fsm.update(lm(rows))
+                got = js["zoomSequences"][s][i]
+                assert got["state"] == fsm.state.name, s
+                assert got["direction"] == fsm.direction, s
+
+
+class TestPauseParity:
+    def test_toggles_land_on_the_same_frames(self, new_parity):
+        from gestureflow.config import DEFAULT_CONFIG
+        from gestureflow.pause_fsm import PauseFSM
+
+        fixtures, js = new_parity
+        for s, sequence in enumerate(fixtures["pauseSequences"]):
+            clock = _SeqClock()
+            fsm = PauseFSM(DEFAULT_CONFIG.pause, clock=clock)
+            for i, (rows, t) in enumerate(sequence):
+                clock.now = t
+                fsm.update(lm(rows))
+                got = js["pauseSequences"][s][i]
+                assert got["paused"] == fsm.paused, (
+                    f"sequence {s} frame {i}: paused differs"
+                )
+                assert got["toggled"] == fsm.toggled, (
+                    f"sequence {s} frame {i}: toggle edge differs"
+                )
+                assert got["progress"] == pytest.approx(fsm.progress, abs=1e-5)

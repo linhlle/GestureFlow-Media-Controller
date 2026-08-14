@@ -205,7 +205,11 @@ function draw(result) {
   ctx.drawImage(els.video, 0, 0, w, h);
   ctx.restore();
 
-  if (!result.landmarks) return;
+  if (!result.landmarks) {
+    drawPauseOverlay(result);
+    drawModeLabel(result);
+    return;
+  }
 
   const pt = (lm) => [(1 - lm.x) * w, lm.y * h];
   const accent = getComputedStyle(document.documentElement)
@@ -245,6 +249,7 @@ function draw(result) {
     ctx.stroke();
   }
 
+  drawPauseOverlay(result);
   drawModeLabel(result);
 }
 
@@ -262,6 +267,18 @@ function drawChargeArc(pt, landmark, progress, color) {
   ctx.beginPath();
   ctx.arc(x, y, 20, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
   ctx.stroke();
+}
+
+function drawPauseOverlay(result) {
+  if (!result.paused) return;
+  const { width: w, height: h } = els.canvas;
+  ctx.fillStyle = 'rgba(11, 15, 20, 0.62)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.font = '700 42px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#8888ff';
+  const text = 'PAUSED';
+  const m = ctx.measureText(text);
+  ctx.fillText(text, (w - m.width) / 2, h / 2);
 }
 
 function drawModeLabel(result) {
@@ -315,8 +332,13 @@ function updatePanels(result) {
 let lastScrollLogged = 0;
 
 function logEvents(result) {
+  if (result.pauseProgress === 1 && result.paused) addEvent('PAUSED');
   if (result.clickFired) addEvent('left click');
   if (result.rightClickFired) addEvent('right click');
+  if (result.dragStarted) addEvent('drag start');
+  if (result.dragEnded) addEvent('drop');
+  if (result.swipeDirection) addEvent(`swipe ${result.swipeDirection}`);
+  if (result.zoomDirection) addEvent(`zoom ${result.zoomDirection}`);
   if (result.action !== null) {
     addEvent(`command: ${POSE_NAMES[result.action] || result.action}`);
   }

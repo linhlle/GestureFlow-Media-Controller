@@ -49,10 +49,32 @@
       </table>
     </div>
 
+    <h3>Safety: the pause switch</h3>
+    <p style="color:var(--text-dim)">
+      <strong>Index and pinky up, middle and ring curled &mdash; "rock horns"
+      &mdash; held for about a second and a half toggles all control off.</strong>
+      Hold it again to resume. While paused the app keeps tracking and the
+      window says PAUSED in large letters, but nothing reaches your Mac.
+    </p>
+    <p style="color:var(--text-dim)">
+      It is deliberately a pose you will not strike by accident: it needs four
+      finger conditions at once, held continuously, and a single frame that
+      breaks the pose resets the timer. It also avoids the thumb entirely,
+      because thumb geometry is the least reliable part of hand tracking and a
+      kill switch should not be built on it.
+    </p>
+
     <h3>Geometric modes</h3>
     <p style="color:var(--text-dim)">
       Active only while the classifier reads Neutral. At most one runs at a
-      time; the gates below are what keep them from colliding.
+      time, decided by a single precedence ladder rather than by each mode
+      trying to exclude the others &mdash; so two can never fire at once.
+    </p>
+    <p style="color:var(--text-dim)">
+      Every threshold below is a fraction of <em>your</em> hand's size (wrist to
+      middle knuckle), not an absolute distance, so the gestures behave the same
+      whether you are close to the camera or leaning back. If they still feel
+      off, <a href="#calibration">calibration</a> fits them to your hand.
     </p>
     <div class="table-scroll">
       <table>
@@ -61,12 +83,13 @@
           <tr>
             <td>Cursor</td>
             <td>Point your index finger up</td>
-            <td>Index tip above its middle joint by 0.04, thumb not raised</td>
+            <td>Index tip clearly above its middle joint</td>
           </tr>
           <tr>
             <td>Left click</td>
             <td>Touch thumb to index tip, hold, then release</td>
-            <td>Pinch closer than 0.045, held 4 frames; fires on release past 0.065</td>
+            <td>Fingertips within 0.28 of your hand's width, held 4 frames;
+                fires on release past 0.41</td>
           </tr>
           <tr>
             <td>Right click</td>
@@ -76,24 +99,63 @@
           <tr>
             <td>Scroll</td>
             <td>Make a fist, then move your hand up or down</td>
-            <td>All four fingers curled, index not extended, thumb not raised, held 5 frames</td>
+            <td>All four fingertips curled below their knuckles, thumb not
+                raised, held 5 frames, moving mostly vertically</td>
           </tr>
           <tr>
             <td>Volume</td>
             <td>Thumb up, index down; move up or down</td>
-            <td>Thumb tip above its knuckle by 0.04, index not extended</td>
+            <td>Thumb straight and clear of the index knuckle, index not extended</td>
+          </tr>
+          <tr>
+            <td>Drag</td>
+            <td>Pinch, keep holding, move, then release</td>
+            <td>The pinch held past the click threshold for another ~0.55&nbsp;s</td>
+          </tr>
+          <tr>
+            <td>Swipe</td>
+            <td>Closed fist, flick left or right</td>
+            <td>Same fist as scroll, but horizontal motion winning by half again</td>
+          </tr>
+          <tr>
+            <td>Zoom</td>
+            <td>Index up and thumb out sideways; spread or close them</td>
+            <td>Thumb at 65&deg;+ to the index, other three curled, held 4 frames</td>
+          </tr>
+          <tr>
+            <td>Dwell click <em>(off by default)</em></td>
+            <td>Hold the pointer still</td>
+            <td>Cursor inside a 40&nbsp;px radius for 1&nbsp;s</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <div class="notice">
+      <strong>Scroll and swipe share one pose.</strong> A fist that moves
+      vertically scrolls; a fist that flicks sideways swipes. One rule decides
+      which, so a single hand movement can never be both. Motion that is
+      genuinely diagonal fires nothing at all &mdash; a page that scrolls when
+      you meant to change desktop is worse than one that waits for you to try
+      again.
+    </div>
+
+    <div class="notice">
+      <strong>Zoom overlaps the L-Shape pose.</strong> A wide L-shape is what
+      arms zoom, and L-Shape is also one of the four trained poses, bound to
+      Spotlight. When the classifier is confident it is L-Shape, Spotlight
+      wins; zoom gets the frame only when it is not. If you want the two
+      cleanly separate, rebind one of them in the
+      <a href="/builder.html">command builder</a>.
+    </div>
+
+    <div class="notice">
       <strong>Why the hold-and-release for clicks.</strong> A click fires when
       you <em>open</em> a held pinch, not when you close it. That means a hand
       that briefly passes through a pinch shape while moving does not click, and
-      holding a pinch does not auto-repeat. The 0.045-to-0.065 gap between the
-      close and open thresholds is hysteresis: without it, a hand hovering at
-      the boundary would chatter clicks on and off.
+      holding a pinch does not auto-repeat. The gap between the close and open
+      thresholds is hysteresis: without it, a hand hovering at the boundary
+      would chatter clicks on and off.
     </div>
   </section>
 
@@ -209,6 +271,64 @@ python -m gestureflow false-triggers takes/*.jsonl</code></pre>
     </p>
   </section>
 
+  <section id="calibration">
+    <h2>Calibration</h2>
+    <p class="sub">
+      Fits the pinch thresholds to your hand. Optional &mdash; everything works
+      without it.
+    </p>
+    <pre><code>python -m gestureflow calibrate</code></pre>
+    <p style="color:var(--text-dim)">
+      Thresholds are already fractions of your hand's size, which handles
+      sitting closer to or further from the camera. What it cannot handle is
+      that hands differ from each other: one person's fully closed pinch
+      measures a fifth of their hand scale, another's a third. If clicking feels
+      unreliable, this is the first thing to try.
+    </p>
+    <p style="color:var(--text-dim)">
+      Four short recordings &mdash; pinch closed, hand open, middle-finger pinch,
+      hand open again &mdash; and it writes
+      <code>~/.gestureflow/calibration.json</code>. Delete that file to go back
+      to the shipped defaults. Check what is in effect with
+      <code>python -m gestureflow calibration</code>.
+    </p>
+  </section>
+
+  <section id="profiles">
+    <h2>App-context profiles</h2>
+    <p class="sub">
+      Change what a gesture means depending on which app is in front.
+    </p>
+    <pre><code>version: 2
+neutral_label: 0
+
+gestures:
+  - gesture: swipe_right
+    name: Next desktop
+    action: { type: hotkey, keys: [ctrl, right] }
+
+profiles:
+  - name: presentation
+    match:
+      apps: [Keynote, Microsoft PowerPoint]
+    gestures:
+      - gesture: swipe_right
+        name: Next slide
+        action: { type: keypress, key: right }</code></pre>
+    <p style="color:var(--text-dim)">
+      A profile lists only what it changes; everything else keeps working as it
+      does by default. The first profile whose app list matches wins, so
+      precedence reads top to bottom. Matching is case-insensitive on the
+      application's name.
+    </p>
+    <p style="color:var(--text-dim)">
+      Reading the frontmost app needs macOS Automation permission. If it is
+      declined, or you are not on macOS, the default profile applies and
+      everything else carries on &mdash; the app says so once and does not
+      nag.
+    </p>
+  </section>
+
   <section id="retraining">
     <h2>Adding your own gestures</h2>
     <p class="sub">
@@ -302,6 +422,22 @@ python -m gestureflow false-triggers takes/*.jsonl</code></pre>
           <tr>
             <td>Poses are recognized unreliably</td>
             <td>The shipped model was trained on one person in one room. Collect your own samples and retrain.</td>
+          </tr>
+          <tr>
+            <td>Clicking is unreliable, but poses are fine</td>
+            <td>Run <code>gestureflow calibrate</code>. The default pinch thresholds may not suit your hand.</td>
+          </tr>
+          <tr>
+            <td>Nothing responds and the window says PAUSED</td>
+            <td>The kill switch is on. Hold index and pinky up, middle and ring down, for a second and a half.</td>
+          </tr>
+          <tr>
+            <td>A long pinch starts dragging when you wanted a click</td>
+            <td>Release sooner, or set <code>DRAG_HOLD_SECONDS</code> higher.</td>
+          </tr>
+          <tr>
+            <td>Swiping also scrolls the page</td>
+            <td>Flick more horizontally. Motion that is close to diagonal deliberately fires neither.</td>
           </tr>
         </tbody>
       </table>

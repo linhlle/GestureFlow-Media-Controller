@@ -9,6 +9,8 @@ import {
   ACTION_TYPES,
   KNOWN_POSES,
   MEDIA_ACTIONS,
+  NAMED_GESTURES,
+  isNamed,
   configWarnings,
   fromConfigObject,
   toConfigObject,
@@ -26,6 +28,18 @@ const DEFAULT_BINDINGS = [
     action: newAction('hotkey', { keys: ['ctrl', 'up'] }) },
   { label: 3, name: 'App Switcher', description: 'Cycle between applications',
     action: newAction('hotkey', { keys: ['command', 'tab'] }) },
+  { gesture: 'swipe_left', name: 'Previous desktop',
+    description: 'Closed fist, flick left',
+    action: newAction('hotkey', { keys: ['ctrl', 'left'] }) },
+  { gesture: 'swipe_right', name: 'Next desktop',
+    description: 'Closed fist, flick right',
+    action: newAction('hotkey', { keys: ['ctrl', 'right'] }) },
+  { gesture: 'zoom_in', name: 'Zoom in',
+    description: 'Thumb and index spread apart',
+    action: newAction('hotkey', { keys: ['command', '='] }) },
+  { gesture: 'zoom_out', name: 'Zoom out',
+    description: 'Thumb and index drawn together',
+    action: newAction('hotkey', { keys: ['command', '-'] }) },
 ];
 
 function newAction(type = 'hotkey', overrides = {}) {
@@ -37,6 +51,9 @@ function newAction(type = 'hotkey', overrides = {}) {
     app: '',
     script: '',
     argv: [''],
+    url: 'https://',
+    text: '',
+    steps: [{ keys: ['command', ''], delay: 0.05 }],
     ...overrides,
   };
 }
@@ -100,7 +117,7 @@ function renderBinding(binding, index) {
   const card = el('div', 'binding');
 
   const head = el('div', 'binding-head');
-  head.appendChild(gestureSelect(binding, index));
+  head.appendChild(gestureSelect(binding));
   const spacer = el('span', 'spacer');
   head.appendChild(spacer);
   const remove = el('button', 'btn secondary small');
@@ -129,7 +146,7 @@ function renderBinding(binding, index) {
   return card;
 }
 
-function gestureSelect(binding, index) {
+function gestureSelect(binding) {
   const wrap = el('div');
   wrap.style.display = 'flex';
   wrap.style.alignItems = 'center';
@@ -137,36 +154,64 @@ function gestureSelect(binding, index) {
 
   const select = document.createElement('select');
   select.style.width = 'auto';
+
+  const poses = document.createElement('optgroup');
+  poses.label = 'Trained poses';
   KNOWN_POSES.forEach((pose) => {
     const opt = document.createElement('option');
-    opt.value = String(pose.label);
+    opt.value = `label:${pose.label}`;
     opt.textContent = `${pose.label} — ${pose.name}`;
     opt.disabled = pose.label === 0;
-    select.appendChild(opt);
+    poses.appendChild(opt);
   });
-
-  // Allow labels beyond the shipped model, for users who have retrained.
   for (let extra = 4; extra <= 9; extra += 1) {
     const opt = document.createElement('option');
-    opt.value = String(extra);
+    opt.value = `label:${extra}`;
     opt.textContent = `${extra} — custom (needs retraining)`;
-    select.appendChild(opt);
+    poses.appendChild(opt);
   }
+  select.appendChild(poses);
 
-  select.value = String(binding.label);
+  // Geometric gestures need no training data, so they are listed separately --
+  // the distinction matters, because a pose above 3 will not fire until the
+  // user retrains and one of these will work immediately.
+  const geometric = document.createElement('optgroup');
+  geometric.label = 'Geometric gestures (no training needed)';
+  NAMED_GESTURES.forEach((g) => {
+    const opt = document.createElement('option');
+    opt.value = `gesture:${g.id}`;
+    opt.textContent = g.label;
+    geometric.appendChild(opt);
+  });
+  select.appendChild(geometric);
+
+  select.value = isNamed(binding)
+    ? `gesture:${binding.gesture}`
+    : `label:${binding.label}`;
+
   select.addEventListener('change', () => {
-    binding.label = Number(select.value);
+    const [kind, value] = select.value.split(':');
+    if (kind === 'gesture') {
+      binding.gesture = value;
+      delete binding.label;
+    } else {
+      binding.label = Number(value);
+      delete binding.gesture;
+    }
     render();
   });
 
   wrap.appendChild(select);
 
-  const pose = KNOWN_POSES.find((p) => p.label === binding.label);
-  if (pose) {
-    const note = el('span', 'gesture-label');
-    note.textContent = pose.note;
-    wrap.appendChild(note);
+  const note = el('span', 'gesture-label');
+  if (isNamed(binding)) {
+    const g = NAMED_GESTURES.find((x) => x.id === binding.gesture);
+    note.textContent = g ? g.note : '';
+  } else {
+    const pose = KNOWN_POSES.find((p) => p.label === binding.label);
+    note.textContent = pose ? pose.note : '';
   }
+  if (note.textContent) wrap.appendChild(note);
   return wrap;
 }
 
@@ -240,6 +285,63 @@ function actionEditor(binding) {
     });
     wrap.appendChild(field('Script', ta,
       'Runs via osascript. macOS will ask permission the first time.'));
+  } else if (a.type === 'url') {
+    wrap.appendChild(field('Link', textInput(a.url, (v) => {
+      a.url = v;
+      updatePreview();
+      save();
+    }, 'https://example.com'), 'http and https only.'));
+  } else if (a.type === 'text') {
+    const ta = document.createElement('textarea');
+    ta.value = a.text;
+    ta.placeholder = 'kind regards';
+    ta.addEventListener('input', () => {
+      a.text = ta.value;
+      updatePreview();
+      save();
+    });
+    wrap.appendChild(field('Text', ta,
+      'Typed one character at a time, so your clipboard is left alone.'));
+  } else if (a.type === 'chord') {
+    const list = el('div');
+    a.steps.forEach((step, i) => {
+      const row = el('div', 'field-row');
+      [0, 1, 2].forEach((k) => {
+        row.appendChild(textInput(step.keys[k] || '', (v) => {
+          step.keys[k] = v;
+          updatePreview();
+          save();
+        }, k === 0 ? 'command' : 'key (optional)'));
+      });
+      const delay = textInput(String(step.delay ?? 0.05), (v) => {
+        step.delay = Number(v);
+        updatePreview();
+        save();
+      }, 'delay (s)');
+      row.appendChild(delay);
+      list.appendChild(field(`Step ${i + 1}`, row));
+    });
+
+    const controls = el('div', 'btn-row');
+    const add = el('button', 'btn secondary small');
+    add.textContent = '+ Step';
+    add.addEventListener('click', () => {
+      a.steps.push({ keys: ['', ''], delay: 0.1 });
+      render();
+    });
+    controls.appendChild(add);
+    if (a.steps.length > 1) {
+      const remove = el('button', 'btn secondary small');
+      remove.textContent = '- Step';
+      remove.addEventListener('click', () => {
+        a.steps.pop();
+        render();
+      });
+      controls.appendChild(remove);
+    }
+    list.appendChild(controls);
+    wrap.appendChild(field('Sequence', list,
+      'Each step fires in order, waiting its delay first.'));
   } else if (a.type === 'shell') {
     const row = el('div', 'field-row');
     [0, 1, 2].forEach((i) => {
@@ -329,7 +431,7 @@ function field(labelText, control, hint) {
 // ---------------------------------------------------------------------------
 
 els.addBtn.addEventListener('click', () => {
-  const used = new Set(bindings.map((b) => b.label));
+  const used = new Set(bindings.filter((b) => !isNamed(b)).map((b) => b.label));
   let next = 1;
   while (used.has(next) && next < 10) next += 1;
   bindings.push({ label: next, name: '', description: '', action: newAction() });

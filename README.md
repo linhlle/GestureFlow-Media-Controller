@@ -18,13 +18,20 @@ recognizer with no install and build your own command bindings.
 
 | Capability | Status |
 | :--- | :--- |
+| Pause / resume kill switch (rock horns, held) | Working |
 | Cursor control from index-finger position | Working |
 | Left click (thumb + index pinch, fires on release) | Working |
 | Right click (middle + index pinch) | Working |
+| Drag and drop (pinch and hold) | Working |
 | Scroll (closed fist, vertical wrist velocity) | Working |
+| Swipe left/right (closed fist, horizontal flick) | Working |
+| Zoom (thumb-index spread) | Working |
+| Dwell click for accessibility | Working, off by default |
 | System volume (thumb up, vertical wrist velocity) | Working |
 | Three trained poses bound to configurable actions | Working |
 | User-defined bindings via a validated config file | Working |
+| Per-user calibration of pinch thresholds | Working |
+| App-context profiles (bindings per frontmost app) | Working |
 | Hot-reload of the config while running | Working |
 | Headless benchmarking with per-stage timings | Working |
 | Record and replay landmark takes | Working |
@@ -68,8 +75,8 @@ Verifiable facts, as opposed to measurements:
 | Feature vector | 63 floats (21 landmarks × xyz, wrist-relative, max-abs scaled) |
 | Model | `RandomForestClassifier`, 100 trees, classes `[0 1 2 3]`, 3,264 nodes |
 | Training data | 941 labelled frames (335 / 202 / 202 / 202) |
-| Tests | 388, all passing |
-| Pipeline threads | 6 (capture, inference, render, action, volume, volume-sync) |
+| Tests | 615, all passing |
+| Pipeline threads | 6, plus one for the frontmost-app poll when profiles are configured |
 
 ---
 
@@ -102,6 +109,8 @@ gestureflow replay take.jsonl         replay a take, print the actions
 gestureflow false-triggers *.jsonl    count actions over no-intent footage
 gestureflow validate                  check a command config
 gestureflow selftest                  check the detectors, no camera needed
+gestureflow calibrate                 fit pinch thresholds to your hand
+gestureflow calibration               show the calibration in effect
 gestureflow bridge                    serve the web UI locally with live state
 ```
 
@@ -113,14 +122,24 @@ Neutral, and at most one runs at a time.
 
 | Gesture | Mode | Default action |
 | :--- | :--- | :--- |
+| Index + pinky up, middle + ring down, hold ~1.5 s | paused | Toggle all control off/on |
 | Index finger up | cursor | Move the pointer |
 | Thumb + index pinch, hold, release | left click | Click |
+| Thumb + index pinch, keep holding, move | drag | Press, drag, drop |
 | Middle + index pinch, hold, release | right click | Right click |
 | Closed fist, move vertically | scroll | Scroll |
+| Closed fist, flick sideways | swipe | Switch desktop |
+| Index up + thumb out, spread or close | zoom | Zoom in / out |
 | Thumb up, move vertically | volume | System volume |
+| Hold the pointer still (off by default) | dwell | Click |
 | L-Shape (label 1) | command | Spotlight |
 | High-Five (label 2) | command | Mission Control |
 | 2-Finger (label 3) | command | App Switcher |
+
+Modes are arbitrated by a single precedence ladder, so two can never be active
+at once — exclusivity is structural rather than a property each mode has to
+maintain against every other. Scroll and swipe share the fist and are separated
+by which axis the motion favours; genuinely diagonal motion fires neither.
 
 Clicks fire on the **release** edge of a held pinch, not the press. A hand
 passing through a pinch shape does not click, and holding does not auto-repeat.
@@ -148,8 +167,11 @@ gestures:
       keys: [command, space]
 ```
 
-Six action types: `hotkey`, `keypress`, `media`, `launch`, `applescript`, and
-`shell`. Build one at the website's command builder, or copy
+Nine action types: `hotkey`, `keypress`, `media`, `launch`, `url`, `text`,
+`chord`, `applescript`, and `shell`. Bindings are keyed either by `label` (a
+pose the model classifies) or by `gesture` (a geometric gesture needing no
+training data). A `profiles:` block can change bindings based on the frontmost
+app. Build one at the website's command builder, or copy
 `configs/commands.default.yaml` to `~/.gestureflow/commands.yaml` and edit it.
 `gestureflow validate` checks it; the app re-reads it while running.
 
@@ -211,7 +233,7 @@ edges, scroll deltas, debouncer votes, and forest probabilities.
 
 ```bash
 pip install -e ".[dev,train]"
-pytest                      # 388 tests
+pytest                      # 615 tests
 pytest -m "not slow"        # skip property-based and Node-subprocess tests
 ruff check gestureflow scripts tests
 ```
@@ -234,11 +256,14 @@ python scripts/export_model_json.py # refresh the browser demo's copy
 | `gestureflow/metrics.py` | Instrumentation |
 | `gestureflow/replay.py` | Record and replay |
 | `gestureflow/smoothing.py` | One Euro cursor filter |
+| `gestureflow/modes.py` | The mode enum and precedence ladder |
+| `gestureflow/calibration.py` | Per-user threshold fitting |
+| `gestureflow/frontmost.py` | Frontmost-app provider for profiles |
 | `gestureflow/bridge.py` | Optional localhost server |
 | `web/` | The static website |
 | `scripts/` | Data collection, training, model export |
 | `configs/` | The default command bindings |
-| `tests/` | 388 tests |
+| `tests/` | 615 tests |
 | `PLAN.md` | Build plan and the web/desktop architecture decision |
 | `DIAGNOSIS.md` | Root-cause analysis of the cursor and scroll regressions |
 | `SETUP.md` | Every step that needs a human |
