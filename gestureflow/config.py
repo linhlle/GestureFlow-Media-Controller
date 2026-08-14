@@ -10,6 +10,12 @@ def _env_float(key: str, default: float) -> float:
 def _env_int(key: str, default: int) -> int:
     return int(os.environ.get(key, default))
 
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
 # ---------------------------------------------------------------------------
 # Camera
 # ---------------------------------------------------------------------------
@@ -243,6 +249,65 @@ class QueueConfig:
 
 
 # ---------------------------------------------------------------------------
+# Zoom (thumb-index spread)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ZoomConfig:
+    enabled: bool = True
+    # Thumb-index gap, in hand-widths, below which zoom will not arm. Sits
+    # above the click's open_threshold on purpose: a pinch closed enough to
+    # click can never be read as a zoom.
+    min_separation: float = field(
+        default_factory=lambda: _env_float("ZOOM_MIN_SEPARATION", 0.55)
+    )
+    # Change in that gap, per frame, before a zoom step fires.
+    sensitivity: float = field(
+        default_factory=lambda: _env_float("ZOOM_SENSITIVITY", 0.06)
+    )
+    min_hold_frames: int = field(
+        default_factory=lambda: _env_int("ZOOM_HOLD_FRAMES", 4)
+    )
+    cooldown: float = field(
+        default_factory=lambda: _env_float("ZOOM_COOLDOWN", 0.12)
+    )
+    # How far the other three fingertips must sit below their knuckles.
+    curl_margin: float = field(
+        default_factory=lambda: _env_float("ZOOM_CURL_MARGIN", 0.12)
+    )
+    # Angle between thumb and index. This is what separates a zoom pose from
+    # ordinary pointing -- a pointing hand also holds the thumb away from the
+    # index, so distance alone would read a cursor gesture as a zoom.
+    # Measured over the recorded dataset: a relaxed Neutral hand sits around
+    # 36 degrees and 65 gives it zero false positives, which is the number that
+    # matters since Neutral is the state every geometric mode lives in.
+    min_angle_degrees: float = field(
+        default_factory=lambda: _env_float("ZOOM_MIN_ANGLE", 65.0)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dwell click (accessibility)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DwellConfig:
+    # Off by default: when this is on, resting the pointer clicks. That is the
+    # point of the feature and also deeply surprising if you did not ask for it.
+    enabled: bool = field(
+        default_factory=lambda: _env_bool("DWELL_ENABLED", False)
+    )
+    seconds: float = field(
+        default_factory=lambda: _env_float("DWELL_SECONDS", 1.0)
+    )
+    # In screen pixels, because the thing being held still is the pointer the
+    # user can see, not the hand.
+    radius_px: float = field(
+        default_factory=lambda: _env_float("DWELL_RADIUS_PX", 40.0)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Swipe (horizontal flick on a held fist)
 # ---------------------------------------------------------------------------
 
@@ -321,6 +386,8 @@ class AppConfig:
     right_click: RightClickConfig = field(default_factory=RightClickConfig)
     scroll: ScrollConfig = field(default_factory=ScrollConfig)
     swipe: SwipeConfig = field(default_factory=SwipeConfig)
+    dwell: DwellConfig = field(default_factory=DwellConfig)
+    zoom: ZoomConfig = field(default_factory=ZoomConfig)
     hud: HudConfig = field(default_factory=HudConfig)
     pause: PauseConfig = field(default_factory=PauseConfig)
 

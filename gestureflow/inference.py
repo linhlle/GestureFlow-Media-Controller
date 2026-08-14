@@ -30,6 +30,7 @@ from gestureflow.scroll_fsm import (
 )
 from gestureflow.swipe_fsm import SwipeFSM
 from gestureflow.utils import drop_oldest_put, normalize_landmarks
+from gestureflow.zoom_fsm import ZoomFSM
 
 
 @dataclass
@@ -59,6 +60,10 @@ class InferenceResult:
     scroll_state: ScrollState
     index_extended: bool
     thumb_raised: bool
+
+    # Zoom
+    zoom_direction: Optional[str] = None
+    zoom_active: bool = False
 
     # Swipe
     swipe_direction: Optional[str] = None
@@ -111,6 +116,7 @@ class InferenceThread(threading.Thread):
         self._scroll_fsm = ScrollFSM(config=cfg.scroll, clock=clock)
         self._pause_fsm = PauseFSM(config=cfg.pause, clock=clock)
         self._swipe_fsm = SwipeFSM(config=cfg.swipe, clock=clock)
+        self._zoom_fsm = ZoomFSM(config=cfg.zoom, clock=clock)
 
     def run(self) -> None:
         print("[inference] Starting inference loop.")
@@ -193,6 +199,7 @@ class InferenceThread(threading.Thread):
                 self._right_fsm.update(None)
                 self._scroll_fsm.update(None)
                 self._swipe_fsm.update(None)
+                self._zoom_fsm.update(None)
             else:
                 # A fist resolves to scroll and nothing else. In a closed hand
                 # the middle and index fingertips sit side by side, which the
@@ -202,8 +209,14 @@ class InferenceThread(threading.Thread):
                 # race: scroll wins by construction rather than by threshold
                 # tuning.
                 fist = _is_true_scroll_fist(lm)
-                self._left_fsm.update(None if fist else lm)
-                self._right_fsm.update(None if fist else lm)
+                # Zoom is resolved before the click FSMs for the same reason a
+                # fist is: thumb and index mean one thing at a time, and the
+                # decision belongs in one place rather than in two thresholds
+                # that have to stay consistent with each other.
+                self._zoom_fsm.update(lm)
+                busy = fist or self._zoom_fsm.is_active
+                self._left_fsm.update(None if busy else lm)
+                self._right_fsm.update(None if busy else lm)
                 self._scroll_fsm.update(lm)
                 self._swipe_fsm.update(lm)
 
@@ -228,6 +241,8 @@ class InferenceThread(threading.Thread):
             scroll_state=self._scroll_fsm.state,
             index_extended=_index_extended(lm),
             thumb_raised=_thumb_raised(lm),
+            zoom_direction=self._zoom_fsm.direction,
+            zoom_active=self._zoom_fsm.is_active,
             swipe_direction=self._swipe_fsm.direction,
             swipe_armed=self._swipe_fsm.is_armed,
             drag_started=self._left_fsm.drag_started,

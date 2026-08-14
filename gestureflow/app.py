@@ -48,6 +48,7 @@ from gestureflow.click_fsm import ClickState
 from gestureflow.commands import CommandSet, load_commands
 from gestureflow.config import DEFAULT_CONFIG, AppConfig
 from gestureflow.controller import SystemController
+from gestureflow.dwell_fsm import DwellFSM
 from gestureflow.inference import InferenceResult, InferenceThread
 from gestureflow.metrics import STAGE_RENDER, MetricsRecorder
 from gestureflow.modes import Mode
@@ -254,6 +255,7 @@ class GestureRouter:
         self._last_vol_update = -float("inf")
         self._volume = 50
         self._cursor_was_active = False
+        self._dwell = DwellFSM(cfg.dwell)
 
     def set_volume_reference(self, volume: int) -> None:
         self._volume = volume
@@ -269,6 +271,7 @@ class GestureRouter:
             # consumes everything -- otherwise the hand shape you happen to be
             # holding as you pause would fire on the way out.
             self._prev_wrist_y = 0.0
+            self._dwell.reset()
             if self._cursor_was_active:
                 # One exception, and it is filter bookkeeping rather than a
                 # user-visible action: without it, resuming would smooth the
@@ -296,12 +299,23 @@ class GestureRouter:
         if result.swipe_direction is not None:
             out.append(act.NamedCommand(f"swipe_{result.swipe_direction}",
                                         captured_at))
+        if result.zoom_direction is not None:
+            out.append(act.NamedCommand(f"zoom_{result.zoom_direction}",
+                                        captured_at))
 
         vol = self._route_volume(result, now)
         if vol is not None:
             out.append(act.SetVolume(vol, captured_at))
 
         move = self._route_cursor(result)
+
+        # Dwell watches the cursor target, and only while the ladder says
+        # CURSOR: during a drag the pointer is deliberately parked sometimes,
+        # and clicking then would drop whatever is being carried.
+        self._dwell.update(move if self.cursor_enabled(result) else None, now)
+        if self._dwell.fired:
+            out.append(act.Click("left", captured_at))
+
         if move is not None:
             out.append(act.MoveCursor(move[0], move[1], captured_at))
             self._cursor_was_active = True
@@ -359,6 +373,9 @@ class GestureRouter:
 
         if result.swipe_armed:
             return Mode.SWIPE
+
+        if result.zoom_active:
+            return Mode.ZOOM
 
         if result.dragging:
             return Mode.DRAG
