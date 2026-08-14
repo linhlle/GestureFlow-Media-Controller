@@ -68,7 +68,11 @@ def _draw_status(frame: np.ndarray, result: InferenceResult,
     stable = result.stable_gesture
     score = result.vote_score
 
-    if result.click_fired:
+    if result.paused:
+        text, color = "PAUSED", (80, 80, 255)
+    elif result.pause_progress > 0:
+        text, color = f"Pause {int(result.pause_progress * 100)}%", (120, 160, 255)
+    elif result.click_fired:
         text, color = "LEFT CLICK", (0, 255, 255)
     elif result.right_click_fired:
         text, color = "RIGHT CLICK", (0, 200, 180)
@@ -95,6 +99,24 @@ def _draw_status(frame: np.ndarray, result: InferenceResult,
 
     cv2.putText(frame, f"{text}  ({score}/{window_size})",
                 (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+
+def _draw_paused_banner(frame: np.ndarray) -> None:
+    """Unmissable, because a paused app that looks running is a bug report."""
+    h, w = frame.shape[:2]
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+
+    label = "PAUSED"
+    size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.6, 4)
+    cv2.putText(frame, label, ((w - size[0]) // 2, h // 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.6, (90, 90, 255), 4)
+
+    hint = "index + pinky up, middle + ring down, hold to resume"
+    size, _ = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    cv2.putText(frame, hint, ((w - size[0]) // 2, h // 2 + 34),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 220), 1)
 
 
 def _draw_camera_banner(frame: np.ndarray, status: str) -> None:
@@ -206,6 +228,8 @@ def draw_overlay(frame: np.ndarray, result: InferenceResult, volume: int,
     # first thing dropped when the frame budget is blown.
     if draw_landmarks:
         _draw_landmarks(frame, result)
+    if result.paused:
+        _draw_paused_banner(frame)
     _draw_camera_banner(frame, camera_status)
 
 
@@ -239,6 +263,19 @@ class GestureRouter:
         now = time.monotonic() if now is None else now
         out: list = []
         captured_at = result.capture.timestamp
+
+        if result.paused or result.pause_toggled:
+            # Nothing dispatches while paused, and the toggle frame itself
+            # consumes everything -- otherwise the hand shape you happen to be
+            # holding as you pause would fire on the way out.
+            self._prev_wrist_y = 0.0
+            if self._cursor_was_active:
+                # One exception, and it is filter bookkeeping rather than a
+                # user-visible action: without it, resuming would smooth the
+                # first frame against a cursor position from before the pause.
+                self._cursor_was_active = False
+                out.append(act.ReleaseCursor())
+            return out
 
         if result.action is not None:
             out.append(act.Command(result.action, captured_at))
@@ -300,6 +337,9 @@ class GestureRouter:
         """
         if result.capture.landmarks is None:
             return Mode.NONE
+
+        if result.paused:
+            return Mode.PAUSED
 
         if self._geometric_modes_suppressed(result):
             return Mode.COMMAND

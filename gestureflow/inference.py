@@ -20,6 +20,7 @@ from gestureflow.metrics import (
     MetricsRecorder,
     NullMetrics,
 )
+from gestureflow.pause_fsm import PauseFSM
 from gestureflow.scroll_fsm import (
     ScrollFSM,
     ScrollState,
@@ -58,6 +59,11 @@ class InferenceResult:
     index_extended: bool
     thumb_raised: bool
 
+    # Pause kill switch
+    paused: bool = False
+    pause_toggled: bool = False
+    pause_progress: float = 0.0
+
 class InferenceThread(threading.Thread):
     def __init__(
             self,
@@ -92,6 +98,7 @@ class InferenceThread(threading.Thread):
         self._right_fsm = ClickFSM(config=cfg.right_click,  landmark_a=12, landmark_b=8,
                                    clock=clock)
         self._scroll_fsm = ScrollFSM(config=cfg.scroll, clock=clock)
+        self._pause_fsm = PauseFSM(config=cfg.pause, clock=clock)
 
     def run(self) -> None:
         print("[inference] Starting inference loop.")
@@ -150,6 +157,10 @@ class InferenceThread(threading.Thread):
             )
 
 
+        # Runs above the classifier on purpose: the kill switch has to work
+        # even if the model reads the pose as something else entirely.
+        self._pause_fsm.update(lm)
+
         with self._metrics.timer(STAGE_NORMALIZE):
             normalized_feat = normalize_landmarks(lm)
 
@@ -202,7 +213,10 @@ class InferenceThread(threading.Thread):
             scroll_active=self._scroll_fsm.is_active,
             scroll_state=self._scroll_fsm.state,
             index_extended=_index_extended(lm),
-            thumb_raised=_thumb_raised(lm)
+            thumb_raised=_thumb_raised(lm),
+            paused=self._pause_fsm.paused,
+            pause_toggled=self._pause_fsm.toggled,
+            pause_progress=self._pause_fsm.progress,
         )
 
 

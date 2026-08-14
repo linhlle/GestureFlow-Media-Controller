@@ -222,6 +222,25 @@ class QueueConfig:
 
 
 # ---------------------------------------------------------------------------
+# Pause / resume kill switch
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PauseConfig:
+    enabled: bool = True
+    # Held continuously; any frame that breaks the pose resets the timer.
+    # Long enough to be deliberate, short enough not to be a chore.
+    hold_seconds: float = field(
+        default_factory=lambda: _env_float("PAUSE_HOLD_SECONDS", 1.5)
+    )
+    # Fraction of hand scale a finger must clear its joint by to count as
+    # extended or curled.
+    margin: float = field(
+        default_factory=lambda: _env_float("PAUSE_MARGIN", 0.25)
+    )
+
+
+# ---------------------------------------------------------------------------
 # HUD
 # ---------------------------------------------------------------------------
 
@@ -250,6 +269,7 @@ class AppConfig:
     right_click: RightClickConfig = field(default_factory=RightClickConfig)
     scroll: ScrollConfig = field(default_factory=ScrollConfig)
     hud: HudConfig = field(default_factory=HudConfig)
+    pause: PauseConfig = field(default_factory=PauseConfig)
 
 # Module-level default instance — import this everywhere
 DEFAULT_CONFIG = AppConfig()
