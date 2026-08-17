@@ -815,7 +815,13 @@ export class Recognizer {
     // cleared its window and stable reads 0 again.
     const suppressed = stable !== 0 || action !== null;
 
+    // Declared in the same order the mode ladder consults them. These two were
+    // referenced by the result object and by modeOf before they were ever
+    // bound, which threw a ReferenceError out of process() on the first frame
+    // containing a hand -- see DIAGNOSIS.md.
     const scrollActive = !suppressed && this.scrollFSM.isActive;
+    const swipeArmed = !suppressed && this.swipeFSM.isArmed;
+    const zoomActive = !suppressed && this.zoomFSM.isActive;
     // No thumb gate here, matching GestureRouter.cursor_enabled: exclusivity
     // against volume comes from the index-up / index-down split instead.
     const cursorActive = !suppressed && !this.leftFSM.isActive

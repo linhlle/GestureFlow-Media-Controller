@@ -23,6 +23,8 @@ import pytest
 from gestureflow.click_fsm import ClickFSM
 from gestureflow.config import DEFAULT_CONFIG
 from gestureflow.debouncer import GestureDebouncer
+from gestureflow.inference import InferenceResult
+from gestureflow.modes import Mode
 from gestureflow.scroll_fsm import (
     ScrollFSM,
     _index_extended,
@@ -366,7 +368,24 @@ def new_parity(tmp_path_factory):
     fixtures = {
         "normalize": [], "velocity": [], "predicates": [],
         "clickSequences": [], "scrollSequences": [], "debounce": [],
-        "forestPath": None, "forestSamples": None,
+        # The recognizer needs the real exported forest; without it the JS
+        # classifier degrades to a constant Neutral and the ladder below is
+        # never exercised past its first rung.
+        "forestPath": str(FOREST_JSON), "forestSamples": None,
+        # One sequence per rung of the mode ladder. The sliding fist is the
+        # one that mattered historically: it is the path that referenced
+        # swipeArmed before it was declared.
+        "recognizerSequences": [
+            [[None, i / 30.0] for i in range(5)]
+            + [[pointing_rows(), (5 + i) / 30.0] for i in range(15)],
+            [[sliding_fist_rows(0.5 + i * 0.04), i / 30.0] for i in range(30)],
+            [[sliding_fist_rows(0.5, 0.75 - i * 0.015), i / 30.0]
+             for i in range(30)],
+            [[zoom_rows(0.25 + i * 0.03), i / 30.0] for i in range(20)],
+            [[pinch_rows(0.02), i / 30.0] for i in range(25)],
+            [[horns_rows(), i / 30.0] for i in range(60)],
+            [[thumb_up_rows(), i / 30.0] for i in range(15)],
+        ],
         "swipeSequences": [
             [[sliding_fist_rows(0.5 + i * 0.04), i / 30.0] for i in range(30)],
             [[sliding_fist_rows(0.5 - i * 0.04), i / 30.0] for i in range(30)],
@@ -472,3 +491,111 @@ class TestPauseParity:
                     f"sequence {s} frame {i}: toggle edge differs"
                 )
                 assert got["progress"] == pytest.approx(fsm.progress, abs=1e-5)
+
+
+# The names the JS ladder uses, mapped onto the Python Mode enum. Python folds
+# both pinch FSMs into a single CLICK rung; the demo distinguishes them so the
+# on-screen pill can say which button it would have pressed.
+_JS_MODE_TO_PY = {
+    "none": "none", "paused": "paused", "command": "command",
+    "scroll": "scroll", "swipe": "swipe", "zoom": "zoom", "drag": "drag",
+    "left-click": "click", "right-click": "click",
+    "volume": "volume", "cursor": "cursor", "tracking": "tracking",
+}
+
+
+class TestRecognizerParity:
+    """Covers Recognizer.process, the function the demo page actually calls.
+
+    Everything else in this file exercises a component. Nothing exercised the
+    thing that composes them, and a ReferenceError in it shipped: process()
+    threw on the first frame containing a hand, demo.js never reached its
+    trailing requestAnimationFrame, and the canvas -- which is the only thing
+    the page shows, the <video> being hidden -- froze on its last painted
+    frame. Hence the reported "freezes when a hand enters".
+    """
+
+    def test_process_survives_every_sequence(self, new_parity):
+        fixtures, js = new_parity
+        assert len(js["recognizer"]) == len(fixtures["recognizerSequences"])
+        for s, sequence in enumerate(fixtures["recognizerSequences"]):
+            # A short result array means process() threw partway through.
+            assert len(js["recognizer"][s]) == len(sequence), (
+                f"sequence {s}: process() produced "
+                f"{len(js['recognizer'][s])} of {len(sequence)} frames"
+            )
+
+    def test_every_field_the_demo_reads_is_populated(self, new_parity):
+        _, js = new_parity
+        for s, frames in enumerate(js["recognizer"]):
+            for i, frame in enumerate(frames):
+                assert frame["undefinedKeys"] == [], (
+                    f"sequence {s} frame {i}: process() left "
+                    f"{frame['undefinedKeys']} undefined"
+                )
+
+    def test_mode_is_always_a_real_mode(self, new_parity):
+        _, js = new_parity
+        valid = {m.value for m in Mode} | {"left-click", "right-click"}
+        for s, frames in enumerate(js["recognizer"]):
+            for i, frame in enumerate(frames):
+                assert frame["mode"] in valid, (
+                    f"sequence {s} frame {i}: unknown mode {frame['mode']!r}"
+                )
+
+    def test_ladder_agrees_with_the_python_router(self, new_parity):
+        """The two precedence ladders must resolve identical flags identically.
+
+        This compares the arbitration itself rather than the detectors -- the
+        detectors are compared frame by frame in the classes above. Feeding
+        GestureRouter the flags JS reported isolates the one thing left that
+        could differ: the order the rungs are checked in.
+        """
+        from gestureflow.app import GestureRouter
+        from gestureflow.capture import CaptureResult
+        from gestureflow.click_fsm import ClickState
+        from gestureflow.config import DEFAULT_CONFIG
+        from gestureflow.scroll_fsm import ScrollState
+
+        _, js = new_parity
+        router = GestureRouter(DEFAULT_CONFIG)
+
+        for s, frames in enumerate(js["recognizer"]):
+            for i, frame in enumerate(frames):
+                if frame["paused"]:
+                    # Python resolves PAUSED inside the router from a flag the
+                    # JS side resolves by returning early; both are checked by
+                    # TestPauseParity and there is no ladder left to compare.
+                    continue
+                landmarks = (lm([[0.5, 0.5, 0.0]] * 21)
+                             if frame["hasLandmarks"] else None)
+                if landmarks is not None:
+                    # _volume_pose reads these two directly.
+                    landmarks[4].y = 0.4 if frame["volumeActive"] else 0.6
+                    landmarks[5].y = 0.5
+                result = InferenceResult(
+                    capture=CaptureResult(frame=None, landmarks=landmarks,
+                                          hand_lm_obj=None, timestamp=0.0),
+                    stable_gesture=frame["stableGesture"],
+                    vote_score=0, confidence=1.0,
+                    raw_prediction=frame["rawPrediction"],
+                    action=frame["action"],
+                    click_fired=False, fsm_active=frame["fsmActive"],
+                    fsm_state=ClickState.IDLE, hold_progress=0.0,
+                    right_click_fired=False,
+                    right_fsm_active=frame["rightFsmActive"],
+                    right_fsm_state=ClickState.IDLE, right_hold_progress=0.0,
+                    scroll_delta=frame["scrollDelta"],
+                    scroll_active=frame["scrollActive"],
+                    scroll_state=ScrollState.IDLE,
+                    index_extended=frame["indexExtended"],
+                    thumb_raised=frame["thumbRaised"],
+                    zoom_active=frame["zoomActive"],
+                    swipe_armed=frame["swipeArmed"],
+                    dragging=frame["dragging"],
+                )
+                assert _JS_MODE_TO_PY[frame["mode"]] == \
+                    router.active_mode(result).value, (
+                        f"sequence {s} frame {i}: JS said {frame['mode']!r}, "
+                        f"Python said {router.active_mode(result).value!r}"
+                    )

@@ -21,6 +21,7 @@ import {
   ZoomFSM,
   PauseFSM,
   GestureDebouncer,
+  Recognizer,
   rockHorns,
   zoomPose,
   thumbIndexAngle,
@@ -129,6 +130,47 @@ out.newPredicates = (fixtures.newPredicates || []).map((rows) => {
 if (fixtures.forestPath && fixtures.forestSamples) {
   const forest = new Forest(JSON.parse(readFileSync(fixtures.forestPath, 'utf8')));
   out.forest = fixtures.forestSamples.map((s) => forest.predictProba(s));
+}
+
+// --- the whole recognizer ---------------------------------------------------
+// Everything above exercises a part. This exercises Recognizer.process, which
+// is the single function the demo page actually calls -- and which had no
+// coverage at all until a ReferenceError in it shipped and killed the demo's
+// render loop on the first frame containing a hand.
+//
+// `undefinedKeys` is the cheap general guard: any field the page reads that
+// process() forgets to populate shows up here rather than as a blank readout
+// nobody notices.
+if (fixtures.forestPath && fixtures.recognizerSequences) {
+  const forest = new Forest(JSON.parse(readFileSync(fixtures.forestPath, 'utf8')));
+  out.recognizer = fixtures.recognizerSequences.map((seq) => {
+    const rec = new Recognizer(forest);
+    return seq.map(([rows, t]) => {
+      const r = rec.process(rows === null ? null : toLm(rows), t);
+      return {
+        mode: r.mode,
+        stableGesture: r.stableGesture,
+        rawPrediction: r.rawPrediction,
+        action: r.action,
+        scrollActive: r.scrollActive,
+        scrollDelta: r.scrollDelta,
+        swipeArmed: r.swipeArmed,
+        swipeDirection: r.swipeDirection,
+        zoomActive: r.zoomActive,
+        zoomDirection: r.zoomDirection,
+        cursorActive: r.cursorActive,
+        volumeActive: r.volumeActive,
+        dragging: r.dragging,
+        fsmActive: r.fsmActive,
+        rightFsmActive: r.rightFsmActive,
+        indexExtended: r.indexExtended,
+        thumbRaised: r.thumbRaised,
+        paused: r.paused,
+        hasLandmarks: r.landmarks !== null,
+        undefinedKeys: Object.keys(r).filter((k) => r[k] === undefined).sort(),
+      };
+    });
+  });
 }
 
 process.stdout.write(JSON.stringify(out));
