@@ -1,0 +1,60 @@
+# Everything Vercel must not see.
+#
+# The website is the static files in web/ and nothing else. This repo also
+# holds a Python desktop app, and Vercel's zero-config detection scans the
+# deployment *source* -- not just the output directory -- so a main.py sitting
+# next to a requirements.txt at the root is enough for it to decide this is a
+# Python serverless function and fail looking for an `app` export.
+#
+# outputDirectory alone does not prevent that: it says where build output
+# lands, not what gets detected. Excluding the Python entrypoints and manifests
+# here means there is nothing left to detect, which is why this file is what
+# actually fixes the deploy.
+#
+# Anchored patterns (leading /) matter: /models/ is the pickled classifier and
+# must be excluded, while web/models/forest.json is what the browser demo
+# loads and must ship.
+
+# --- Python entrypoints: the direct cause of the failed detection ---
+/main.py
+/main_old.py
+/ref.py
+/conftest.py
+
+# --- Python manifests: what makes Vercel reach for a Python runtime ---
+/pyproject.toml
+/requirements.txt
+/requirements-*.txt
+/setup.py
+/setup.cfg
+
+# --- Application and dev code ---
+/gestureflow/
+/scripts/
+/tests/
+/configs/
+
+# --- Virtualenvs, caches, build artefacts ---
+/venv/
+/.venv/
+/env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+/.pytest_cache/
+/.ruff_cache/
+/.mypy_cache/
+
+# --- Data and models. Note this is /models/ at the root, NOT web/models/ ---
+/data/
+/models/
+
+# --- Local run output: benchmarks, recordings, reports ---
+/bench/
+/takes/
+/reports/
+
+# --- Repo furniture with no place on a CDN ---
+/.github/
+/*.md
+/LICENSE
