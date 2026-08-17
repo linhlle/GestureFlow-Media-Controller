@@ -1,3 +1,12 @@
+This file holds two investigations:
+
+1. **[Cursor barely moves, scroll dead](#diagnosis-cursor-barely-moves--jitters-scroll-completely-dead)**
+   — the desktop app (`gestureflow run`).
+2. **[Browser demo freezes when a hand enters frame](#diagnosis-2-browser-demo-freezes-when-a-hand-enters-frame)**
+   — the web demo (`web/demo.html`).
+
+---
+
 # Diagnosis: cursor barely moves / jitters, scroll completely dead
 
 Investigated against the real desktop path (`gestureflow run`), before any code
@@ -316,3 +325,311 @@ python -m gestureflow bench --seconds 20
 #    inference.predict count while you hold a pointing hand in frame.
 #    A large gap means moves are still being coalesced away.
 ```
+
+---
+---
+
+# Diagnosis 2: browser demo freezes when a hand enters frame
+
+Reported symptom: `web/demo.html` lags or freezes the camera feed **when a hand
+enters the frame**; with no hand visible it is smooth. This is the JS/WASM demo
+path, not the Python desktop app.
+
+The reported symptom is a **crash**, not a performance problem. The hypothesis
+going in was that hand-present frames do far more work (landmark model + forest
++ skeleton draw) and starve the main thread. That hypothesis is measurably
+wrong, and the measurements are below. What actually happened is that
+`Recognizer.process` threw a `ReferenceError` on the first frame containing a
+hand, and the render loop was structured so that a single exception stopped it
+permanently.
+
+---
+
+## Method
+
+Numbers come from the real demo page driven in a real Chrome, not from a
+re-implementation of the loop in a test harness — the bug is about *when* work
+happens on the main thread, and a re-implementation would just reproduce
+whichever scheduling the harness author had in mind.
+
+- `scripts/make_fake_camera.py` writes two Y4M clips: a hand filling the frame
+  and drifting, and the same room empty. Chrome plays these in place of a
+  webcam (`--use-file-for-fake-video-capture`), so every run sees a
+  byte-identical input stream. A real camera cannot give that, and without it
+  before/after numbers are not comparable.
+- `scripts/webbench.mjs` launches Chrome, attaches over the DevTools protocol,
+  and injects instrumentation *from outside* so the page's own source is
+  unmodified: `requestAnimationFrame` (per-callback main-thread cost),
+  `HandLandmarker.detectForVideo` (MediaPipe solve time),
+  `Recognizer.process` (forest + FSM time), `drawImage` of a video element
+  (when a camera frame actually reaches the screen), and a `longtask` observer.
+- ES modules are singletons per URL, so importing the same MediaPipe and
+  recognizer URLs the page imports returns the very objects it will use.
+  Patching those prototypes before the camera starts instruments the real
+  instances.
+- Warm-up is discarded: the run waits until the page has actually painted, then
+  waits again, then measures for 9 s. Model download and WASM compile are
+  one-time costs that would otherwise dominate every percentile.
+
+All numbers are 640×480 at 30 fps on one machine (Intel Iris Plus 655, macOS).
+They describe that machine and that camera resolution, nothing else.
+
+---
+
+## Root cause — `swipeArmed` and `zoomActive` are never declared
+
+[`web/js/recognizer.js`](web/js/recognizer.js), in `Recognizer.process`:
+
+```js
+const scrollActive = !suppressed && this.scrollFSM.isActive;   // declared
+const cursorActive = ...                                       // declared
+const volumeActive = ...                                       // declared
+
+return {
+  ...
+  swipeArmed,     // <- never declared
+  zoomActive,     // <- never declared
+  mode: modeOf({ ..., swipeArmed, zoomActive, ... }),
+};
+```
+
+`scrollActive`, `cursorActive` and `volumeActive` are bound a few lines above.
+`swipeArmed` and `zoomActive` are not bound anywhere in the function. ES modules
+are always strict mode, so reading an unbound identifier is a `ReferenceError`,
+not `undefined`.
+
+Introduced in `128de86` ("Wire the new gestures into the browser demo, builder
+and docs"), which added both names to the returned object and to the `modeOf`
+call — and no `const` for either.
+
+### Why only with a hand
+
+`process()` returns early through `emptyResult()` when there are no landmarks,
+and `emptyResult` sets `swipeArmed`/`zoomActive` as *object properties*, which
+is legal. The unbound identifiers are only reached on the path that has a hand:
+
+| Frame | Path | Result |
+| :--- | :--- | :--- |
+| No hand | early return via `emptyResult()` | fine |
+| Hand | falls through to the `return {...}` at the end | **throws** |
+
+### Why a throw froze the picture rather than logging an error
+
+Two structural facts turn one bad frame into a permanent freeze.
+
+**The loop rescheduled itself on its last line.**
+[`web/js/demo.js`](web/js/demo.js), before this change:
+
+```js
+function loop() {
+  if (!running) return;
+  if (/* new video frame */) {
+    const detection = handLandmarker.detectForVideo(els.video, nowMs);
+    const result = recognizer.process(landmarks, nowMs / 1000);   // throws here
+    draw(result);
+    ...
+  }
+  requestAnimationFrame(loop);        // never reached
+}
+```
+
+Nothing else drives the loop, so the first escaping exception ends it for good.
+
+**The `<video>` element is invisible.** [`web/css/style.css`](web/css/style.css):
+
+```css
+.stage video { visibility: hidden; }
+```
+
+The canvas is the only thing the user sees, and the canvas is only repainted
+inside the loop. A dead loop therefore does not look like an error — it looks
+exactly like the camera froze.
+
+### Why the test suite did not catch it
+
+`scripts/parity_check.mjs` imported `ClickFSM`, `ScrollFSM`, `SwipeFSM`,
+`ZoomFSM`, `PauseFSM`, `GestureDebouncer` and every geometric predicate, and
+exercised each one individually. It never constructed `Recognizer`. The single
+function the demo page actually calls had no coverage in either parity suite.
+
+This is the same gap recorded further up this file, where the JS recognizer's
+click-suppression rule diverged and "the numeric parity suite did not cover it
+because it tests the FSMs individually". The gap was noted then and not closed.
+It is closed now.
+
+---
+
+## The performance hypothesis, measured and rejected
+
+With the crash fixed, per work frame (mean, hand present vs absent):
+
+| Stage | Hand present | No hand | Share of frame |
+| :--- | ---: | ---: | ---: |
+| MediaPipe solve | 22.34 ms | 20.13 ms | **97.5%** |
+| Recognizer (forest + all FSMs) | 0.07 ms | 0.01 ms | 0.3% |
+| Canvas draw + DOM panels + log | ~0.5 ms | ~0.5 ms | 2% |
+
+And end to end:
+
+| | Hand present | No hand |
+| :--- | ---: | ---: |
+| Presented fps | 30.0 | 29.5 |
+| Present gap p50 / p95 | 33.5 / 48.1 ms | 34.0 / 49.4 ms |
+
+Conclusions, none of which match the hypothesis:
+
+- **The forest is not the cost.** 0.07 ms, roughly 0.3% of a frame. The 100-tree
+  forest over 63 features is nothing next to the landmark model.
+- **The skeleton draw is not the cost.** ~0.5 ms for 21 arcs, 21 lines, the
+  charge arcs, the panels and the event log combined.
+- **A hand costs 2.2 ms more, not "far more".** About 11%, which is MediaPipe
+  additionally running the landmark model once the palm detector has found
+  something.
+- **There is no hand-present smoothness penalty at all.** 30.0 fps with a hand
+  against 29.5 without, and the gap distributions overlap. Both sit at the
+  camera's own 30 fps, which is the ceiling.
+
+So the freeze was the `ReferenceError`, in full. No part of the reported symptom
+is explained by main-thread load.
+
+## Backend actually in use
+
+Probed in the page rather than assumed:
+
+| Question | Answer |
+| :--- | :--- |
+| GPU delegate | **Active.** `delegate: 'GPU'` initialises; MediaPipe logs `Graph successfully started running` with no fallback warning |
+| WebGL backend | `ANGLE (Intel, ANGLE Metal Renderer: Intel(R) Iris(TM) Plus Graphics 655)` |
+| WASM build loaded | `vision_wasm_internal.wasm` — the **SIMD** build, not `vision_wasm_nosimd_internal.wasm` |
+| WASM threads | Supported by the browser, but `crossOriginIsolated` is **false**, so the threaded pool is unavailable |
+
+The demo is already on the best backend available to it. There is no CPU/no-SIMD
+fallback to escape from. Enabling WASM threads would need COOP/COEP headers,
+which would also have to be reconciled with the cross-origin CDN imports; given
+that presented fps already sits at the camera's own rate, there is no headroom
+that change could recover, so it was not made.
+
+---
+
+## Fixes applied
+
+1. **Declare `swipeArmed` and `zoomActive`** ([`web/js/recognizer.js`](web/js/recognizer.js)),
+   in the order the mode ladder consults them and matching the `!suppressed`
+   convention of the three flags beside them. `modeOf` checks `suppressed`
+   first, so the resolved `mode` is identical either way.
+
+2. **Cover `Recognizer.process` in the parity harness**
+   ([`scripts/parity_check.mjs`](scripts/parity_check.mjs),
+   [`tests/test_js_parity.py`](tests/test_js_parity.py)) — one sequence per rung
+   of the mode ladder, asserting that every frame produces a result, that no
+   field the demo reads is left `undefined`, that `mode` is always a real mode,
+   and that the JS ladder resolves the same flags to the same mode as
+   `GestureRouter.active_mode`. Verified to fail against the pre-fix file.
+
+3. **Reschedule the loop from `finally`** ([`web/js/demo.js`](web/js/demo.js)),
+   so no future exception can stop the page requesting frames.
+
+4. **Paint the camera frame before inference, not after.** This one came out of
+   the control test below rather than from reading the code, and it is the part
+   that actually keeps the video moving.
+
+5. **Hoist a per-frame `getComputedStyle`.** The accent colour was read inside
+   the hand-present branch of `draw()`, forcing a style recalculation every
+   frame containing a hand to fetch a constant. Read once at start.
+
+6. **Report video and recognizer rates separately** in the demo's readout, so
+   the two can be seen to diverge instead of being assumed equal. Measured live
+   in the tab; no number is hard-coded anywhere.
+
+### Not done, and why
+
+- **Web Worker / OffscreenCanvas.** Would genuinely move the 22 ms solve off the
+  main thread, but presented fps already equals the camera's own frame rate, so
+  there is no throughput to recover. It is a large change with real parity risk
+  against a recognizer that must stay byte-identical to the Python one.
+- **Landmark interpolation between inference results.** Only pays off when
+  inference runs slower than presentation. They run 1:1 here, both at 30 fps.
+- **Inference backpressure / frame skipping.** `detectForVideo` is synchronous,
+  so a second solve cannot begin before the first returns. There is no queue to
+  bound and nothing to drop; the "only one in flight" property is already
+  structural.
+- **Inferring on a downscaled frame.** Would trade recognition quality for
+  headroom that is not currently needed.
+
+---
+
+## Control test: the freeze mechanism, reproduced and fixed
+
+`scripts/webbench.mjs --break-recognizer` makes `Recognizer.process` throw the
+original `ReferenceError` after 100 good frames, which is the fault in
+isolation. Run against three versions of the loop, hand present:
+
+| Loop | Faults thrown | Solve fps | **Presented fps** |
+| :--- | ---: | ---: | ---: |
+| Original — reschedule on last line | **1** | 0 | **0** |
+| `finally` reschedule, paint *after* inference | 316 | 29.9 | **0** |
+| `finally` reschedule, paint *before* inference | 311 | 30.1 | **30.1** |
+
+("Solve fps" is MediaPipe's `detectForVideo` rate as counted by the harness. The
+page's own readout would correctly show `30 fps video` with no recognizer figure
+in rows 2 and 3, since nothing gets past the throw.)
+
+The first row is the reported bug, reproduced exactly: **one** exception, and
+the page never renders again.
+
+The second row is the one that changed the fix. Rescheduling from `finally` kept
+the loop alive — 316 faults absorbed, MediaPipe still solving at 29.9 fps — and
+the picture was *still frozen*, because `draw()` sat downstream of
+`recognizer.process()`. Alive and visibly frozen is the same thing to a user.
+I would not have found this by reading the code; it took injecting the fault and
+watching presented fps stay at zero.
+
+The third row is the fix: with the camera frame painted before inference is
+attempted, 311 consecutive recognizer failures cost the overlay and the
+readouts, and cost the video nothing.
+
+---
+
+## Confirmed after the fix
+
+Same fake-camera clips, same machine, 640×480 at 30 fps, hand present:
+
+| | Before | After |
+| :--- | ---: | ---: |
+| Presented fps | **0** — loop dead on the first hand frame | **30.0** |
+| Recognizer fps | 0 | 30.0 |
+| Present gap p50 / p95 | — (nothing presented) | 33.3 / 46.2 ms |
+| MediaPipe solve p50 / p95 | — | 24.8 / 29.9 ms |
+| Recognizer p50 | — | 0.1 ms |
+| Long tasks in a 9 s window | — | 0 |
+
+"Before" is not a slow number, it is the absence of one: with the shipped
+`recognizer.js`, the loop threw on the first frame containing a hand and never
+presented another. That is the whole reported symptom.
+
+With no hand in frame, after the fix: 29.9 fps presented, solve p50 17.5 ms.
+The hand-present and hand-absent cases are both at the camera's own rate, which
+is the ceiling for this input.
+
+Run-to-run variation in solve time across the five runs collected here is
+±3 ms at p50, comfortably larger than any difference the demo-side changes could
+account for — those changes remove roughly 0.5 ms of style recalculation per
+hand-present frame. **No claim is made that the fixes made MediaPipe faster.**
+They made the demo run at all, and made it keep running when something throws.
+
+### Reproducing
+
+```bash
+# One-time: fetch a hand photo MediaPipe recognises, build the clips.
+python scripts/make_fake_camera.py --src <dir-with-hand.jpg> --out bench/y4m
+
+# Measure the demo as it stands.
+node scripts/webbench.mjs --y4m bench/y4m --label now --out bench
+
+# Reproduce the freeze mechanism: fault the recognizer, watch presented fps.
+node scripts/webbench.mjs --y4m bench/y4m --label fault --out bench \
+  --break-recognizer
+```
+
+Needs Google Chrome and Node. Chrome is launched against a throwaway profile and
+killed afterwards; nothing touches the user's own browser.
