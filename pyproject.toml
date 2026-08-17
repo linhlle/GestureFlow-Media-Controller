@@ -52,8 +52,8 @@ dev = [
 gestureflow = "gestureflow.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/linhlle/GestureFlow-Media-Controller"
-Issues = "https://github.com/linhlle/GestureFlow-Media-Controller/issues"
+Homepage = "https://github.com/liz112200/GestureFlow-Media-Controller"
+Issues = "https://github.com/liz112200/GestureFlow-Media-Controller/issues"
 
 [tool.setuptools]
 packages = ["gestureflow"]

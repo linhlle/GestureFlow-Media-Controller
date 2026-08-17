@@ -8,7 +8,7 @@ poses; a majority-vote debouncer and three finite state machines decide whether
 a movement was actually meant as a command. A companion website lets you try the
 recognizer with no install and build your own command bindings.
 
-[![tests](https://github.com/linhlle/GestureFlow-Media-Controller/actions/workflows/tests.yml/badge.svg)](https://github.com/linhlle/GestureFlow-Media-Controller/actions/workflows/tests.yml)
+[![tests](https://github.com/liz112200/GestureFlow-Media-Controller/actions/workflows/tests.yml/badge.svg)](https://github.com/liz112200/GestureFlow-Media-Controller/actions/workflows/tests.yml)
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -83,7 +83,7 @@ Verifiable facts, as opposed to measurements:
 ## Install
 
 ```bash
-git clone https://github.com/linhlle/GestureFlow-Media-Controller.git
+git clone https://github.com/liz112200/GestureFlow-Media-Controller.git
 cd GestureFlow-Media-Controller
 python3 -m venv venv
 source venv/bin/activate

@@ -12,7 +12,7 @@ optional.
 ## 1. Install the app
 
 ```bash
-git clone https://github.com/linhlle/GestureFlow-Media-Controller.git
+git clone https://github.com/liz112200/GestureFlow-Media-Controller.git
 cd GestureFlow-Media-Controller
 python3 -m venv venv
 source venv/bin/activate
