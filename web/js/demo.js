@@ -58,7 +58,12 @@ let recognizer = null;
 let stream = null;
 let running = false;
 let lastVideoTime = -1;
-let frameTimes = [];
+let presentTimes = [];
+let inferenceTimes = [];
+// Read once. getComputedStyle forces a style recalculation, and this used to sit
+// inside the hand-present branch of draw() -- so the page paid for one on every
+// frame containing a hand, to fetch a constant.
+let accent = '#4dd4c4';
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -100,9 +105,16 @@ async function start() {
     els.canvas.width = els.video.videoWidth || 640;
     els.canvas.height = els.video.videoHeight || 480;
 
+    accent = getComputedStyle(document.documentElement)
+      .getPropertyValue('--accent').trim() || accent;
+
     els.overlay.classList.add('hidden');
     els.stopBtn.disabled = false;
     running = true;
+    lastVideoTime = -1;
+    presentTimes = [];
+    inferenceTimes = [];
+    loopErrorReported = false;
     requestAnimationFrame(loop);
   } catch (err) {
     els.startBtn.disabled = false;
@@ -157,11 +169,44 @@ function setOverlay(text, hint) {
 
 function loop() {
   if (!running) return;
+  try {
+    step();
+  } catch (err) {
+    reportLoopError(err);
+  } finally {
+    // The reschedule belongs in `finally`, not on the last line of the work.
+    //
+    // This loop used to end with requestAnimationFrame(loop) after the drawing,
+    // so the first exception to escape stopped the page scheduling frames at
+    // all -- permanently, since nothing else drives it. And because the <video>
+    // element is hidden by CSS and the canvas is the only visible surface, a
+    // dead loop does not look like an error. It looks like the camera froze.
+    // That is exactly how a ReferenceError in the recognizer presented itself:
+    // smooth with no hand, frozen the instant a hand appeared. See
+    // DIAGNOSIS.md. Rescheduling here means a bad frame costs one frame.
+    if (running) requestAnimationFrame(loop);
+  }
+}
 
+function step() {
   const nowMs = performance.now();
-  if (els.video.currentTime !== lastVideoTime && els.video.readyState >= 2) {
-    lastVideoTime = els.video.currentTime;
+  if (els.video.currentTime === lastVideoTime || els.video.readyState < 2) return;
+  lastVideoTime = els.video.currentTime;
 
+  // The camera frame goes up first, and its own try/catch below cannot take it
+  // back down. Presentation used to be the *last* thing that happened, after
+  // detection and recognition and with no guard, so anything that threw in
+  // between left the canvas holding a stale frame. Measured: with the
+  // recognizer faulting on every frame, the loop survived and kept inferring at
+  // 29.9 fps while presenting 0 -- alive, and still visibly frozen. Painting
+  // here is what makes a recognizer fault cost the overlay instead of the video.
+  paintVideo();
+  presentTimes.push(nowMs);
+
+  try {
+    // detectForVideo is synchronous, so a second solve cannot start before this
+    // one returns: there is no queue to back up and nothing to drop. The cost of
+    // a solve is paid here, on the main thread, once per camera frame.
     const detection = handLandmarker.detectForVideo(els.video, nowMs);
     const landmarks = detection.landmarks && detection.landmarks.length
       ? detection.landmarks[0]
@@ -169,41 +214,68 @@ function loop() {
 
     // The recognizer thinks in seconds, like the Python original.
     const result = recognizer.process(landmarks, nowMs / 1000);
+    inferenceTimes.push(nowMs);
 
-    draw(result);
+    drawOverlay(result);
     updatePanels(result);
     logEvents(result);
-    trackFps(nowMs);
+  } catch (err) {
+    reportLoopError(err);
   }
 
-  requestAnimationFrame(loop);
+  trackFps(nowMs);
+}
+
+let loopErrorReported = false;
+
+function reportLoopError(err) {
+  // Once, not once per frame: a broken recognizer would otherwise fill the log
+  // 30 times a second and bury whatever else the page was showing.
+  if (!loopErrorReported) {
+    loopErrorReported = true;
+    addEvent('recognizer error — see the browser console');
+  }
+  console.error('[gestureflow] frame skipped:', err);
+}
+
+/** Rate over the trailing `windowMs`, or null before there is enough to say. */
+function rateOver(times, nowMs, windowMs = 2000) {
+  while (times.length > 1 && nowMs - times[0] > windowMs) times.shift();
+  if (times.length <= 5) return null;
+  return (times.length - 1) / ((nowMs - times[0]) / 1000);
 }
 
 function trackFps(nowMs) {
-  frameTimes.push(nowMs);
-  while (frameTimes.length > 1 && nowMs - frameTimes[0] > 2000) frameTimes.shift();
-  if (frameTimes.length > 5) {
-    const span = (nowMs - frameTimes[0]) / 1000;
-    const fps = (frameTimes.length - 1) / span;
-    // Measured here, in this browser, right now -- not a claim about the
-    // desktop app, which is a different pipeline on different hardware.
-    els.fps.textContent = `${fps.toFixed(0)} fps in this tab`;
-  }
+  const video = rateOver(presentTimes, nowMs);
+  const infer = rateOver(inferenceTimes, nowMs);
+  if (video === null) return;
+  // Counted at two different points -- one where the camera frame is blitted,
+  // one where a recognizer result comes back -- rather than assumed equal, so
+  // that if they ever diverge the readout says so instead of hiding it.
+  // Measured here, in this browser, right now: not a claim about the desktop
+  // app, which is a different pipeline on different hardware.
+  els.fps.textContent = `${video.toFixed(0)} fps video`
+    + (infer === null ? '' : ` · ${infer.toFixed(0)} fps recognizer`);
 }
 
 // ---------------------------------------------------------------------------
 // Drawing
 // ---------------------------------------------------------------------------
 
-function draw(result) {
+/** Put the newest camera frame on screen. Depends on nothing but the video. */
+function paintVideo() {
   const { width: w, height: h } = els.canvas;
-
   ctx.save();
   // Mirror, so moving right on screen matches moving right in the room.
   ctx.translate(w, 0);
   ctx.scale(-1, 1);
   ctx.drawImage(els.video, 0, 0, w, h);
   ctx.restore();
+}
+
+/** Everything drawn on top of the camera frame. Needs a recognizer result. */
+function drawOverlay(result) {
+  const { width: w, height: h } = els.canvas;
 
   if (!result.landmarks) {
     drawPauseOverlay(result);
@@ -212,8 +284,6 @@ function draw(result) {
   }
 
   const pt = (lm) => [(1 - lm.x) * w, lm.y * h];
-  const accent = getComputedStyle(document.documentElement)
-    .getPropertyValue('--accent').trim() || '#4dd4c4';
 
   ctx.lineWidth = 2;
   ctx.strokeStyle = 'rgba(230, 237, 243, 0.55)';
