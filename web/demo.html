@@ -5,14 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Live demo — GestureFlow</title>
 <meta name="description" content="See the GestureFlow recognizer run on your own hand, in your browser.">
+<link rel="preload" href="/fonts/fraunces-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/plexsans-400.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#f6f2e9">
 <link rel="stylesheet" href="/css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖐️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 124'%3E%3Cg stroke='%231c1a16' stroke-width='7' stroke-linecap='round' fill='none'%3E%3Cpath d='M50 113 17 81'/%3E%3Cpath d='M50 113 31 28'/%3E%3Cpath d='M50 113 50 21'/%3E%3Cpath d='M50 113 68 26'/%3E%3Cpath d='M50 113 87 40'/%3E%3C/g%3E%3Cg fill='%23c2402a'%3E%3Ccircle cx='17' cy='81' r='8'/%3E%3Ccircle cx='31' cy='28' r='8'/%3E%3Ccircle cx='50' cy='21' r='8'/%3E%3Ccircle cx='68' cy='26' r='8'/%3E%3Ccircle cx='87' cy='40' r='8'/%3E%3C/g%3E%3C/svg%3E">
 </head>
 <body>
 
 <nav>
   <div class="wrap">
-    <a class="brand" href="/">Gesture<span>Flow</span></a>
+    <a class="brand" href="/"><svg class="mark" viewBox="0 0 100 124" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><g stroke="currentColor" stroke-width="6" stroke-linecap="round"><path d="M50 113 17 81"/><path d="M50 113 31 28"/><path d="M50 113 50 21"/><path d="M50 113 68 26"/><path d="M50 113 87 40"/></g><g fill="var(--vermillion)"><circle cx="17" cy="81" r="7"/><circle cx="31" cy="28" r="7"/><circle cx="50" cy="21" r="7"/><circle cx="68" cy="26" r="7"/><circle cx="87" cy="40" r="7"/></g></svg><span class="wordmark">Gesture<em>Flow</em></span></a>
     <a class="navlink active" href="/demo.html">Live demo</a>
     <a class="navlink" href="/builder.html">Command builder</a>
     <a class="navlink" href="/guide.html">Guide</a>
@@ -22,19 +25,20 @@
 <div class="wrap">
 
   <section style="padding-bottom: 1.25rem;">
-    <h2>Recognition preview</h2>
+    <p class="eyebrow">Live &middot; runs on your device</p>
+    <h2>Watch it think</h2>
     <p class="sub">
-      Your camera feed, the detected hand skeleton, and what the recognizer
-      makes of it &mdash; running the same trained model as the desktop app.
+      Your camera, the hand it finds, and what it decides that hand means
+      &mdash; the same trained model the desktop app runs.
     </p>
 
     <div class="notice">
-      <strong>This does not control your computer.</strong> It is a preview of
-      the recognizer only. Nothing on this page can move your cursor, press a
-      key, or change your volume &mdash; browsers do not grant web pages that
-      access. The panel on the right shows which mode <em>would</em> be active
-      if the desktop app were running.
-      Video is processed on your device and is never uploaded.
+      <strong>This can't control your computer, and won't pretend to.</strong>
+      Nothing on this page can move your cursor, press a key or touch your
+      volume &mdash; browsers don't grant pages that access. What you get is the
+      recognizer's own view: the panel names the mode it <em>would</em> be in if
+      the desktop app were listening. Your video is processed here, in this tab,
+      and never uploaded &mdash; there's no server to upload it to.
     </div>
 
     <div class="demo-grid">
@@ -44,7 +48,7 @@
           <canvas id="canvas"></canvas>
           <div class="stage-overlay" id="overlay">
             <div>
-              <p id="overlay-text">The demo needs access to your camera.</p>
+              <p id="overlay-text">This needs your camera. Only this tab sees it.</p>
               <button class="btn" id="start-btn">Start camera</button>
               <p class="hint" id="overlay-hint" style="margin-top:0.8rem"></p>
             </div>
@@ -72,8 +76,9 @@
             <span class="mode-pill" data-mode="command">command</span>
           </div>
           <p class="hint" style="margin-top:0.7rem">
-            Exactly one can be active at a time. That exclusivity is enforced by
-            geometric gates and checked by property-based tests in the repo.
+            Exactly one lights at a time. Not by luck &mdash; a single
+            precedence ladder decides, so two modes being active at once isn't
+            something the code can express.
           </p>
         </div>
 
@@ -128,7 +133,7 @@
           <h3>Events</h3>
           <div class="event-log" id="event-log"></div>
           <p class="hint" style="margin-top:0.6rem">
-            What the desktop app would have performed.
+            What the desktop app would have done.
           </p>
         </div>
       </div>
@@ -136,7 +141,8 @@
   </section>
 
   <section>
-    <h2>Gestures to try</h2>
+    <p class="eyebrow">Reference</p>
+    <h2>Things to try</h2>
     <div class="table-scroll">
       <table>
         <thead>
@@ -197,10 +203,12 @@
       </table>
     </div>
     <p class="hint">
-      The three trained poses are the ones in the shipped model. The model was
-      trained on one person's hands in one room, so it may read your hands less
-      reliably than it reads the author's &mdash; retraining on your own samples
-      is described in the <a href="/guide.html#retraining">guide</a>.
+      The three trained poses are whatever's in the shipped model &mdash; which
+      I trained on my own hands, in one room, under one lamp. It will almost
+      certainly read your hands worse than it reads mine. That's not modesty,
+      it's how the dataset was collected; the
+      <a href="/guide.html#retraining">guide</a> shows you how to retrain it on
+      yourself.
     </p>
   </section>
 
@@ -208,7 +216,8 @@
 
 <footer>
   <div class="wrap">
-    Hand landmarks by MediaPipe Tasks, running locally via WebAssembly.
+    <span>Hand landmarks by MediaPipe Tasks, running locally via WebAssembly.</span>
+    <span class="sig">Nothing here leaves the tab.</span>
   </div>
 </footer>
 

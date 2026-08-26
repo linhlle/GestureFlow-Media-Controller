@@ -5,14 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guide — GestureFlow</title>
 <meta name="description" content="Gesture vocabulary, install steps, macOS permissions, and how to measure GestureFlow's performance on your own hardware.">
+<link rel="preload" href="/fonts/fraunces-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/plexsans-400.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#f6f2e9">
 <link rel="stylesheet" href="/css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖐️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 124'%3E%3Cg stroke='%231c1a16' stroke-width='7' stroke-linecap='round' fill='none'%3E%3Cpath d='M50 113 17 81'/%3E%3Cpath d='M50 113 31 28'/%3E%3Cpath d='M50 113 50 21'/%3E%3Cpath d='M50 113 68 26'/%3E%3Cpath d='M50 113 87 40'/%3E%3C/g%3E%3Cg fill='%23c2402a'%3E%3Ccircle cx='17' cy='81' r='8'/%3E%3Ccircle cx='31' cy='28' r='8'/%3E%3Ccircle cx='50' cy='21' r='8'/%3E%3Ccircle cx='68' cy='26' r='8'/%3E%3Ccircle cx='87' cy='40' r='8'/%3E%3C/g%3E%3C/svg%3E">
 </head>
 <body>
 
 <nav>
   <div class="wrap">
-    <a class="brand" href="/">Gesture<span>Flow</span></a>
+    <a class="brand" href="/"><svg class="mark" viewBox="0 0 100 124" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><g stroke="currentColor" stroke-width="6" stroke-linecap="round"><path d="M50 113 17 81"/><path d="M50 113 31 28"/><path d="M50 113 50 21"/><path d="M50 113 68 26"/><path d="M50 113 87 40"/></g><g fill="var(--vermillion)"><circle cx="17" cy="81" r="7"/><circle cx="31" cy="28" r="7"/><circle cx="50" cy="21" r="7"/><circle cx="68" cy="26" r="7"/><circle cx="87" cy="40" r="7"/></g></svg><span class="wordmark">Gesture<em>Flow</em></span></a>
     <a class="navlink" href="/demo.html">Live demo</a>
     <a class="navlink" href="/builder.html">Command builder</a>
     <a class="navlink active" href="/guide.html">Guide</a>
@@ -21,15 +24,29 @@
 
 <div class="wrap-narrow">
 
+  <header class="hero" style="display:block; padding-bottom:1.2rem;">
+    <p class="eyebrow">Guide</p>
+    <h1>Everything it does, and what it needs from you.</h1>
+    <p class="lede">
+      The gestures, the install, the macOS permissions that only you can grant,
+      and how to measure any of this on your own machine instead of taking my
+      word for it.
+    </p>
+  </header>
+
+  <hr class="rule">
+
   <section>
+    <p class="eyebrow">01</p>
     <h2>Gesture vocabulary</h2>
     <p class="sub">
-      Two families. Poses are classified by the trained model; everything else
-      is geometry measured directly from the landmarks.
+      Two families. Poses go through the trained model; everything else is
+      geometry read straight off the landmarks, so it needs no training data at
+      all.
     </p>
 
     <h3>Trained poses</h3>
-    <p style="color:var(--text-dim)">
+    <p>
       These go through the Random Forest and a 10-frame majority vote. What each
       one does is up to your config &mdash; the defaults are below.
     </p>
@@ -50,13 +67,13 @@
     </div>
 
     <h3>Safety: the pause switch</h3>
-    <p style="color:var(--text-dim)">
+    <p>
       <strong>Index and pinky up, middle and ring curled &mdash; "rock horns"
       &mdash; held for about a second and a half toggles all control off.</strong>
       Hold it again to resume. While paused the app keeps tracking and the
       window says PAUSED in large letters, but nothing reaches your Mac.
     </p>
-    <p style="color:var(--text-dim)">
+    <p>
       It is deliberately a pose you will not strike by accident: it needs four
       finger conditions at once, held continuously, and a single frame that
       breaks the pose resets the timer. It also avoids the thumb entirely,
@@ -65,12 +82,12 @@
     </p>
 
     <h3>Geometric modes</h3>
-    <p style="color:var(--text-dim)">
+    <p>
       Active only while the classifier reads Neutral. At most one runs at a
       time, decided by a single precedence ladder rather than by each mode
       trying to exclude the others &mdash; so two can never fire at once.
     </p>
-    <p style="color:var(--text-dim)">
+    <p>
       Every threshold below is a fraction of <em>your</em> hand's size (wrist to
       middle knuckle), not an absolute distance, so the gestures behave the same
       whether you are close to the camera or leaning back. If they still feel
@@ -160,6 +177,7 @@
   </section>
 
   <section id="install">
+    <p class="eyebrow">02</p>
     <h2>Install and run</h2>
 
     <ol class="steps">
@@ -229,6 +247,7 @@ python -m gestureflow validate</code></pre>
   </section>
 
   <section id="measuring">
+    <p class="eyebrow">03</p>
     <h2>Measuring it yourself</h2>
     <p class="sub">
       This site quotes no performance numbers, because they depend on your
@@ -237,7 +256,7 @@ python -m gestureflow validate</code></pre>
 
     <h3>Latency and frame rate</h3>
     <pre><code>python -m gestureflow bench --seconds 30</code></pre>
-    <p style="color:var(--text-dim)">
+    <p>
       Runs the full pipeline headless for 30 seconds without touching your
       cursor, then prints per-stage timings and writes a JSON report. Latency
       comes out as p50/p95/p99 rather than a mean, because the mean hides
@@ -251,7 +270,7 @@ python -m gestureflow record takes/no-intent-1.jsonl --label no-intent --seconds
 
 # Replay it and count what fired
 python -m gestureflow false-triggers takes/*.jsonl</code></pre>
-    <p style="color:var(--text-dim)">
+    <p>
       Every action over footage you labelled no-intent is a false trigger by
       definition. Because replays are deterministic, you can change a threshold,
       replay the same take, and compare honestly &mdash; which is the only way
@@ -260,7 +279,7 @@ python -m gestureflow false-triggers takes/*.jsonl</code></pre>
 
     <h3>Model accuracy</h3>
     <pre><code>python scripts/train_model.py</code></pre>
-    <p style="color:var(--text-dim)">
+    <p>
       Writes <code>models/metrics.json</code> with accuracy, per-class
       precision and recall, and a confusion matrix. Read the caveat it records
       alongside them: training rows are logged one per video frame while a pose
@@ -272,20 +291,21 @@ python -m gestureflow false-triggers takes/*.jsonl</code></pre>
   </section>
 
   <section id="calibration">
+    <p class="eyebrow">04</p>
     <h2>Calibration</h2>
     <p class="sub">
       Fits the pinch thresholds to your hand. Optional &mdash; everything works
       without it.
     </p>
     <pre><code>python -m gestureflow calibrate</code></pre>
-    <p style="color:var(--text-dim)">
+    <p>
       Thresholds are already fractions of your hand's size, which handles
       sitting closer to or further from the camera. What it cannot handle is
       that hands differ from each other: one person's fully closed pinch
       measures a fifth of their hand scale, another's a third. If clicking feels
       unreliable, this is the first thing to try.
     </p>
-    <p style="color:var(--text-dim)">
+    <p>
       Four short recordings &mdash; pinch closed, hand open, middle-finger pinch,
       hand open again &mdash; and it writes
       <code>~/.gestureflow/calibration.json</code>. Delete that file to go back
@@ -295,6 +315,7 @@ python -m gestureflow false-triggers takes/*.jsonl</code></pre>
   </section>
 
   <section id="profiles">
+    <p class="eyebrow">05</p>
     <h2>App-context profiles</h2>
     <p class="sub">
       Change what a gesture means depending on which app is in front.
@@ -315,13 +336,13 @@ profiles:
       - gesture: swipe_right
         name: Next slide
         action: { type: keypress, key: right }</code></pre>
-    <p style="color:var(--text-dim)">
+    <p>
       A profile lists only what it changes; everything else keeps working as it
       does by default. The first profile whose app list matches wins, so
       precedence reads top to bottom. Matching is case-insensitive on the
       application's name.
     </p>
-    <p style="color:var(--text-dim)">
+    <p>
       Reading the frontmost app needs macOS Automation permission. If it is
       declined, or you are not on macOS, the default profile applies and
       everything else carries on &mdash; the app says so once and does not
@@ -330,6 +351,7 @@ profiles:
   </section>
 
   <section id="retraining">
+    <p class="eyebrow">06</p>
     <h2>Adding your own gestures</h2>
     <p class="sub">
       The shipped model knows four poses. Teaching it more takes about ten
@@ -372,12 +394,13 @@ profiles:
   </section>
 
   <section id="bridge">
+    <p class="eyebrow">07</p>
     <h2>Optional: the local bridge</h2>
     <p class="sub">
       Serves this same interface from your own machine, with live gesture state.
     </p>
     <pre><code>python -m gestureflow bridge</code></pre>
-    <p style="color:var(--text-dim)">
+    <p>
       Opens <code>http://127.0.0.1:8765</code>. Because the page is then served
       from loopback, the WebSocket carrying live state is same-origin and works
       in every browser &mdash; which it would not reliably do from an
@@ -386,7 +409,7 @@ profiles:
       running, the command builder can write your config directly instead of
       going through the Downloads folder.
     </p>
-    <p style="color:var(--text-dim)">
+    <p>
       It binds to loopback only, checks the <code>Origin</code> header on
       upgrade, and re-validates any pushed config exactly as it would one read
       from disk.
@@ -394,6 +417,7 @@ profiles:
   </section>
 
   <section>
+    <p class="eyebrow">08</p>
     <h2>Troubleshooting</h2>
     <div class="table-scroll">
       <table>

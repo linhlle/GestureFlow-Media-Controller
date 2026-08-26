@@ -63,7 +63,22 @@ let inferenceTimes = [];
 // Read once. getComputedStyle forces a style recalculation, and this used to sit
 // inside the hand-present branch of draw() -- so the page paid for one on every
 // frame containing a hand, to fetch a constant.
-let accent = '#4dd4c4';
+//
+// The overlay palette lives in the stylesheet rather than here so the canvas and
+// the page around it cannot drift apart. Fallbacks are the values that apply if
+// the stylesheet has not loaded; they are colours, and nothing reads them back.
+const HUD_DEFAULTS = {
+  accent: '#c2402a',
+  bone: 'rgba(246, 242, 233, 0.6)',
+  track: 'rgba(246, 242, 233, 0.26)',
+  right: '#e0a33a',
+  scroll: '#78bd72',
+  scrim: 'rgba(23, 21, 15, 0.66)',
+  scrimStrong: 'rgba(23, 21, 15, 0.8)',
+  paused: '#e8845c',
+  idle: '#b3a893',
+};
+let hud = { ...HUD_DEFAULTS };
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -105,8 +120,20 @@ async function start() {
     els.canvas.width = els.video.videoWidth || 640;
     els.canvas.height = els.video.videoHeight || 480;
 
-    accent = getComputedStyle(document.documentElement)
-      .getPropertyValue('--accent').trim() || accent;
+    const css = getComputedStyle(document.documentElement);
+    const pick = (name, fallback) =>
+      css.getPropertyValue(name).trim() || fallback;
+    hud = {
+      accent: pick('--accent', HUD_DEFAULTS.accent),
+      bone: pick('--hud-bone', HUD_DEFAULTS.bone),
+      track: pick('--hud-track', HUD_DEFAULTS.track),
+      right: pick('--hud-right', HUD_DEFAULTS.right),
+      scroll: pick('--hud-scroll', HUD_DEFAULTS.scroll),
+      scrim: pick('--hud-scrim', HUD_DEFAULTS.scrim),
+      scrimStrong: pick('--hud-scrim-strong', HUD_DEFAULTS.scrimStrong),
+      paused: pick('--hud-paused', HUD_DEFAULTS.paused),
+      idle: pick('--hud-idle', HUD_DEFAULTS.idle),
+    };
 
     els.overlay.classList.add('hidden');
     els.stopBtn.disabled = false;
@@ -286,7 +313,7 @@ function drawOverlay(result) {
   const pt = (lm) => [(1 - lm.x) * w, lm.y * h];
 
   ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(230, 237, 243, 0.55)';
+  ctx.strokeStyle = hud.bone;
   for (const [a, b] of HAND_CONNECTIONS) {
     const [x1, y1] = pt(result.landmarks[a]);
     const [x2, y2] = pt(result.landmarks[b]);
@@ -296,7 +323,7 @@ function drawOverlay(result) {
     ctx.stroke();
   }
 
-  ctx.fillStyle = accent;
+  ctx.fillStyle = hud.accent;
   for (const lm of result.landmarks) {
     const [x, y] = pt(lm);
     ctx.beginPath();
@@ -304,14 +331,14 @@ function drawOverlay(result) {
     ctx.fill();
   }
 
-  drawChargeArc(pt, result.landmarks[LM.INDEX_TIP], result.holdProgress, accent);
+  drawChargeArc(pt, result.landmarks[LM.INDEX_TIP], result.holdProgress, hud.accent);
   drawChargeArc(pt, result.landmarks[LM.MIDDLE_TIP], result.rightHoldProgress,
-                '#4dc4d4');
+                hud.right);
 
   if (result.scrollActive) {
     const [wx, wy] = pt(result.landmarks[LM.WRIST]);
     const dir = result.scrollDelta >= 0 ? -1 : 1;
-    ctx.strokeStyle = '#6fcf7f';
+    ctx.strokeStyle = hud.scroll;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(wx, wy);
@@ -326,7 +353,7 @@ function drawOverlay(result) {
 function drawChargeArc(pt, landmark, progress, color) {
   if (!progress || progress <= 0) return;
   const [x, y] = pt(landmark);
-  ctx.strokeStyle = 'rgba(120,120,120,0.6)';
+  ctx.strokeStyle = hud.track;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(x, y, 20, 0, Math.PI * 2);
@@ -342,10 +369,10 @@ function drawChargeArc(pt, landmark, progress, color) {
 function drawPauseOverlay(result) {
   if (!result.paused) return;
   const { width: w, height: h } = els.canvas;
-  ctx.fillStyle = 'rgba(11, 15, 20, 0.62)';
+  ctx.fillStyle = hud.scrim;
   ctx.fillRect(0, 0, w, h);
   ctx.font = '700 42px ui-monospace, Menlo, monospace';
-  ctx.fillStyle = '#8888ff';
+  ctx.fillStyle = hud.paused;
   const text = 'PAUSED';
   const m = ctx.measureText(text);
   ctx.fillText(text, (w - m.width) / 2, h / 2);
@@ -357,9 +384,9 @@ function drawModeLabel(result) {
   const text = label.toUpperCase();
   const padding = 8;
   const metrics = ctx.measureText(text);
-  ctx.fillStyle = 'rgba(11, 15, 20, 0.75)';
+  ctx.fillStyle = hud.scrimStrong;
   ctx.fillRect(12, 12, metrics.width + padding * 2, 28);
-  ctx.fillStyle = result.mode === 'tracking' ? '#9aa7b6' : '#4dd4c4';
+  ctx.fillStyle = result.mode === 'tracking' ? hud.idle : hud.accent;
   ctx.fillText(text, 12 + padding, 31);
 }
 

@@ -5,14 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Command builder — GestureFlow</title>
 <meta name="description" content="Bind gestures to macOS actions and export a config the GestureFlow desktop app loads.">
+<link rel="preload" href="/fonts/fraunces-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/plexsans-400.woff2" as="font" type="font/woff2" crossorigin>
+<meta name="theme-color" content="#f6f2e9">
 <link rel="stylesheet" href="/css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖐️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 124'%3E%3Cg stroke='%231c1a16' stroke-width='7' stroke-linecap='round' fill='none'%3E%3Cpath d='M50 113 17 81'/%3E%3Cpath d='M50 113 31 28'/%3E%3Cpath d='M50 113 50 21'/%3E%3Cpath d='M50 113 68 26'/%3E%3Cpath d='M50 113 87 40'/%3E%3C/g%3E%3Cg fill='%23c2402a'%3E%3Ccircle cx='17' cy='81' r='8'/%3E%3Ccircle cx='31' cy='28' r='8'/%3E%3Ccircle cx='50' cy='21' r='8'/%3E%3Ccircle cx='68' cy='26' r='8'/%3E%3Ccircle cx='87' cy='40' r='8'/%3E%3C/g%3E%3C/svg%3E">
 </head>
 <body>
 
 <nav>
   <div class="wrap">
-    <a class="brand" href="/">Gesture<span>Flow</span></a>
+    <a class="brand" href="/"><svg class="mark" viewBox="0 0 100 124" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><g stroke="currentColor" stroke-width="6" stroke-linecap="round"><path d="M50 113 17 81"/><path d="M50 113 31 28"/><path d="M50 113 50 21"/><path d="M50 113 68 26"/><path d="M50 113 87 40"/></g><g fill="var(--vermillion)"><circle cx="17" cy="81" r="7"/><circle cx="31" cy="28" r="7"/><circle cx="50" cy="21" r="7"/><circle cx="68" cy="26" r="7"/><circle cx="87" cy="40" r="7"/></g></svg><span class="wordmark">Gesture<em>Flow</em></span></a>
     <a class="navlink" href="/demo.html">Live demo</a>
     <a class="navlink active" href="/builder.html">Command builder</a>
     <a class="navlink" href="/guide.html">Guide</a>
@@ -22,17 +25,20 @@
 <div class="wrap">
 
   <section style="padding-bottom:1rem;">
-    <h2>Command builder</h2>
+    <p class="eyebrow">Writes a file &middot; runs nothing</p>
+    <h2>Teach it your shortcuts</h2>
     <p class="sub">
-      Bind each gesture to something your Mac should do, then download the
-      config and drop it in <code>~/.gestureflow/</code>.
+      Point each gesture at something you actually do, then take the file and
+      drop it in <code>~/.gestureflow/</code>.
     </p>
 
     <div class="notice info">
-      <strong>This page writes a file; the desktop app runs it.</strong>
-      Nothing here executes on your machine. The download is a plain text
-      config that the Python app reads, re-validates, and acts on. If you would
-      rather not download anything,
+      <strong>This page writes a file. The desktop app is what runs it.</strong>
+      Nothing you build here executes in your browser &mdash; it can't. What you
+      get is plain text that the Python app reads and re-checks from scratch on
+      its end, because a config that arrived over the internet doesn't get
+      trusted just because it looks fine here. If you'd rather not download
+      anything,
       <span id="bridge-hint">start the app with <code>gestureflow bridge</code></span>
       and it can receive the config directly.
     </div>
