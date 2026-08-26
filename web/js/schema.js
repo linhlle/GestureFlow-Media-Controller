@@ -372,11 +372,16 @@ export function toYaml(config) {
 
 // Quote anything that YAML would otherwise reinterpret: digits, booleans,
 // nulls, or strings carrying structural characters.
+//
+// `=` and `?` belong in that list and were missing. A bare `=` is YAML's
+// reserved value tag, so the stock "zoom in" binding -- keys: [command, =] --
+// emitted a config that no YAML parser would load. `-` was already covered by
+// the leading-character rule, which is why zoom out worked and zoom in did not.
 function yamlScalar(value) {
   const s = String(value);
   const needsQuotes = s === ''
     || /^[\d.+-]/.test(s)
-    || /[:#\[\]{}&*!|>'"%@`,]/.test(s)
+    || /[:#\[\]{}&*!|>'"%@`,=?]/.test(s)
     || /^(y|n|yes|no|true|false|on|off|null|~)$/i.test(s)
     || s !== s.trim();
   if (!needsQuotes) return s;

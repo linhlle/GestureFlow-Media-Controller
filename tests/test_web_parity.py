@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -400,10 +402,116 @@ class TestSiteContent:
             hits = banned.findall(text)
             assert not hits, f"{page} contains an unmeasured claim: {hits}"
 
+    @staticmethod
+    def _claims(page: str) -> str:
+        """Page text, lowercased, with contractions expanded and space collapsed.
+
+        The copy is deliberately written in a human voice, so it says "can't"
+        where a specification would say "cannot". Normalising here lets the
+        wording keep changing while still pinning down the claim itself --
+        which is the part that must never quietly soften.
+        """
+        text = (WEB / page).read_text().lower()
+        for contraction, expanded in (
+            ("can't", "cannot"), ("won't", "will not"),
+            ("doesn't", "does not"), ("don't", "do not"),
+            ("&mdash;", " "), ("&nbsp;", " "),
+        ):
+            text = text.replace(contraction, expanded)
+        return re.sub(r"\s+", " ", text)
+
     def test_demo_page_states_it_cannot_control_the_computer(self):
-        html = (WEB / "demo.html").read_text().lower()
-        assert "does not control your computer" in html
+        assert "cannot control your computer" in self._claims("demo.html")
 
     def test_landing_page_explains_the_browser_desktop_split(self):
-        html = (WEB / "index.html").read_text().lower()
-        assert "cannot move your cursor" in html
+        text = self._claims("index.html")
+        assert "cannot touch your mac" in text
+        assert "cannot move your cursor" in text
+
+
+class TestBuilderSerializerLoads:
+    """The builder's YAML must survive the loader that will actually read it.
+
+    Everything else in this file compares schema.js and commands.py as text.
+    That catches a constant drifting. It does not catch the serializer emitting
+    something no YAML parser will accept -- which is exactly what shipped: the
+    stock "zoom in" binding wrote `keys: [command, =]`, and a bare `=` is
+    YAML's reserved value tag, so the default export failed to load.
+    """
+
+    CASES = [
+        # The builder's own default bindings, `=` and `-` included.
+        {"version": 2, "neutral_label": 0, "gestures": [
+            {"label": 1, "name": "Spotlight", "description": "Open Spotlight",
+             "action": {"type": "hotkey", "keys": ["command", "space"]}},
+            {"gesture": "zoom_in", "name": "Zoom in",
+             "action": {"type": "hotkey", "keys": ["command", "="]}},
+            {"gesture": "zoom_out", "name": "Zoom out",
+             "action": {"type": "hotkey", "keys": ["command", "-"]}},
+        ]},
+        # Scalars chosen to poke at YAML's reinterpretation rules.
+        {"version": 2, "neutral_label": 0, "gestures": [
+            {"label": 1, "name": "Yes", "description": "no",
+             "action": {"type": "keypress", "key": "="}},
+            {"label": 2, "name": "colon: inside", "description": "#hash",
+             "action": {"type": "text", "text": "a: b # c"}},
+            {"label": 3, "name": "Question", "description": "?",
+             "action": {"type": "url", "url": "https://example.com/?a=1&b=2"}},
+        ]},
+        # Every remaining action type, so none of them emits unloadable YAML.
+        {"version": 2, "neutral_label": 0, "gestures": [
+            {"label": 1, "name": "Media", "action": {"type": "media",
+                                                     "action": "playpause"}},
+            {"label": 2, "name": "Launch", "action": {"type": "launch",
+                                                      "app": "Safari"}},
+            {"label": 3, "name": "Script", "action": {
+                "type": "applescript",
+                "script": "tell application \"Finder\"\n  activate\nend tell"}},
+            {"gesture": "swipe_left", "name": "Shell", "action": {
+                "type": "shell", "argv": ["echo", "a && b", "-n", "="]}},
+            {"gesture": "swipe_right", "name": "Chord", "action": {
+                "type": "chord",
+                "steps": [{"keys": ["command", "="], "delay": 0.05},
+                          {"keys": ["command", "-"], "delay": 0.1}]}},
+        ]},
+    ]
+
+    @pytest.fixture(scope="class")
+    def emitted(self, tmp_path_factory):
+        node = shutil.which("node")
+        harness = PROJECT_ROOT / "scripts" / "config_check.mjs"
+        if node is None or not harness.exists():
+            pytest.skip("node or the config harness is unavailable")
+        path = tmp_path_factory.mktemp("cfg") / "fixtures.json"
+        path.write_text(json.dumps(self.CASES))
+        proc = subprocess.run([node, str(harness), str(path)],
+                              capture_output=True, text=True,
+                              cwd=str(PROJECT_ROOT), timeout=60)
+        if proc.returncode != 0:
+            pytest.fail(f"config harness failed:\n{proc.stderr}")
+        return json.loads(proc.stdout)
+
+    def test_every_emitted_config_loads(self, emitted):
+        from gestureflow.commands import load_commands_from_string
+
+        assert len(emitted) == len(self.CASES)
+        for i, text in enumerate(emitted):
+            try:
+                cs = load_commands_from_string(text, "yaml")
+            except Exception as exc:                       # noqa: BLE001
+                pytest.fail(f"case {i} did not load: {exc}\n---\n{text}")
+            # Label-keyed and name-keyed bindings live in separate maps.
+            total = len(cs.bindings) + len(cs.named)
+            assert total == len(self.CASES[i]["gestures"]), (
+                f"case {i}: loaded {total} bindings, "
+                f"emitted {len(self.CASES[i]['gestures'])}"
+            )
+
+    def test_hotkey_keys_survive_the_round_trip(self, emitted):
+        from gestureflow.commands import load_commands_from_string
+
+        cs = load_commands_from_string(emitted[0], "yaml")
+        # The literal that used to break the export entirely.
+        assert cs.get_named("zoom_in").action.keys == ("command", "=")
+        assert cs.get_named("zoom_out").action.keys == ("command", "-")
+        assert cs.get(1).action.keys == ("command", "space")
